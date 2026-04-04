@@ -86,14 +86,14 @@ const STEP_META = {
 };
 
 const NAV_ITEMS = [
-  { id: 'landing', label: 'Home', msym: 'home' },
+  { id: 'landing', label: 'About', msym: 'home' },
   { id: 'dashboard', label: 'Dashboard', msym: 'space_dashboard' },
   { id: 'chain', label: 'Token Chain', msym: 'token' },
   { id: 'security', label: 'Security', msym: 'shield', badgeKey: 'alerts' },
   { id: 'testbench', label: 'Testbench', msym: 'science' },
   { id: 'upload', label: 'Upload', msym: 'upload_file' },
-  { id: 'incident', label: 'Incident', msym: 'gpp_bad' },
   { id: 'launch', label: 'Launch', msym: 'play_arrow' },
+  { id: 'incident', label: 'Incident', msym: 'gpp_bad' },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -314,7 +314,7 @@ export default function App() {
             )}
             {page === 'chain' && <ChainPage key="c" workflows={workflows} chainNodes={chainNodes} currentWorkflow={currentWorkflow} selectedWorkflowId={selectedWorkflowId} setSelectedWorkflowId={setSelectedWorkflowId} audit={audit} onKill={() => handleKill(currentWorkflow?.id)} busyAction={busyAction} />}
             {page === 'audit' && <AuditPage key="a" audit={audit} />}
-            {page === 'security' && <SecurityPage key="s" currentReview={currentReview} reviewQueue={reviewQueue} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
+            {page === 'security' && <SecurityPage key="s" currentReview={currentReview} reviewQueue={reviewQueue} workflows={workflows} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
             {page === 'vault' && <VaultPage key="v" credentials={credentials} health={health} />}
             {page === 'launch' && <LaunchPage key="l" tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask} onStart={handleStart} busyAction={busyAction} />}
             {page === 'testbench' && <TestbenchPage key="tb" />}
@@ -656,9 +656,21 @@ function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId,
                 border: w.id === selectedWorkflowId ? '1px solid rgba(196,192,255,0.35)' : '1px solid rgba(70,69,85,0.15)',
                 color: w.id === selectedWorkflowId ? 'var(--primary)' : 'var(--on-surface-variant)',
               }}>
-              {w.id.slice(0, 18)}… <StatusPill status={w.status} small />
+              {w.name ? w.name.slice(0, 24) + (w.name.length > 24 ? '…' : '') : w.id.slice(0, 18) + '…'} <StatusPill status={w.status} small />
             </button>
           ))}
+          <button
+            onClick={() => { setSelectedWorkflowId(null); }}
+            className="flex-shrink-0 px-2.5 py-1.5 rounded-xl text-[10px] font-bold transition-all flex items-center gap-1"
+            style={{
+              background: 'rgba(255,180,171,0.08)',
+              border: '1px solid rgba(255,180,171,0.2)',
+              color: 'var(--error)',
+            }}
+            title="Clear workflow selector"
+          >
+            <M icon="close" style={{ fontSize: 12 }} /> Clear
+          </button>
         </div>
       )}
 
@@ -759,7 +771,7 @@ function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId,
           {currentWorkflow && (
             <div className="grid grid-cols-1 gap-3">
               <InfoCard label="Workflow ID" value={currentWorkflow.id} msym="hub" />
-              <InfoCard label="Step" value={`Step ${currentWorkflow.current_step}`} msym="skip_next" />
+              <InfoCard label="Workflow" value={currentWorkflow.name || 'Unnamed Workflow'} msym="assignment" />
             </div>
           )}
           <div className="card p-4">
@@ -825,14 +837,36 @@ function AuditPage({ audit }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PAGE: Security Review
+   PAGE: Security Review — Audit Log
    ═══════════════════════════════════════════════════════════ */
-function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyAction }) {
+function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevoke, busyAction }) {
+  const hasWorkflows = workflows && workflows.length > 0;
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      {currentReview ? (
-        <div className="space-y-4">
-          {/* Big Alert Header */}
+      {/* Page Header */}
+      <div className="card p-6 mb-6 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-5" style={{ background: 'radial-gradient(circle at 80% 50%, var(--error), transparent 60%)' }} />
+        <div className="relative flex items-center gap-4">
+          <div className="p-3 rounded-2xl" style={{ background: 'rgba(255,180,171,0.1)', boxShadow: '0 0 20px rgba(255,180,171,0.08)' }}>
+            <M icon="shield" style={{ color: 'var(--error)', fontSize: 28 }} />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold font-headline">Security Audit Log</h3>
+            <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>Tracks all workflow executions, security violations, flagged tokens, and kill switch activations across your environment.</p>
+          </div>
+          {reviewQueue.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold" style={{ background: 'rgba(255,80,80,0.1)', color: 'var(--error)', border: '1px solid rgba(255,180,171,0.2)' }}>
+              <span className="w-2 h-2 rounded-full animate-pulse-subtle" style={{ background: 'var(--error)' }} />
+              {reviewQueue.length} Alert{reviewQueue.length > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Active Review Alert */}
+      {currentReview && (
+        <div className="space-y-4 mb-6">
           <div className="security-alert-card">
             <div className="relative z-10">
               <div className="flex items-center gap-3 mb-4">
@@ -854,7 +888,6 @@ function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyActi
             </div>
           </div>
 
-          {/* Detail Grid */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="card-glow-error p-5">
               <div className="flex items-center gap-2 mb-2">
@@ -874,7 +907,6 @@ function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyActi
             <DetailCard label="Task" value={currentReview.review?.taskData?.name || currentReview.task?.name || 'n/a'} msym="assignment" />
           </div>
 
-          {/* Violations */}
           {(currentReview.review?.violations || []).length > 0 && (
             <div className="card p-5">
               <h4 className="text-sm font-bold uppercase tracking-[0.1em] mb-4 flex items-center gap-2">
@@ -892,7 +924,6 @@ function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyActi
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex gap-3">
             <button onClick={() => onResume(currentReview.workflowId)} disabled={busyAction === 'resume'} className="btn-success flex-1">
               <M icon="check_circle" style={{ fontSize: 16 }} /> {busyAction === 'resume' ? 'Resuming…' : 'Override & Resume'}
@@ -902,8 +933,102 @@ function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyActi
             </button>
           </div>
         </div>
+      )}
+
+      {/* Workflow Audit Log — shows all tracked workflows */}
+      {hasWorkflows ? (
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <M icon="history" style={{ color: 'var(--primary)', fontSize: 18 }} />
+              <h3 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Workflow Audit Trail</h3>
+            </div>
+            <span className="text-[10px] font-mono" style={{ color: 'var(--outline)' }}>{workflows.length} workflow{workflows.length !== 1 ? 's' : ''} recorded</span>
+          </div>
+          <p className="text-xs mb-6" style={{ color: 'var(--on-surface-variant)' }}>Complete log of all workflows with status, timestamps, and security events.</p>
+
+          {/* Table Header */}
+          <div className="grid gap-3" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 0.8fr' }}>
+            <div className="px-3 py-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Workflow</span>
+            </div>
+            <div className="px-3 py-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Status</span>
+            </div>
+            <div className="px-3 py-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Started</span>
+            </div>
+            <div className="px-3 py-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Last Updated</span>
+            </div>
+            <div className="px-3 py-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Tokens</span>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[calc(100vh-420px)] overflow-auto pr-1">
+            {workflows.map((w, idx) => {
+              const tokenSummary = w.token_summary || {};
+              const totalTokens = Object.values(tokenSummary).reduce((a, b) => a + b, 0);
+              const hasFlagged = tokenSummary.flagged > 0;
+              const hasRevoked = tokenSummary.revoked > 0;
+              const isAborted = w.status === 'aborted';
+              const isPaused = w.status === 'paused';
+              const statusColor = isAborted || hasFlagged || hasRevoked ? 'var(--error)' : isPaused ? 'var(--warning)' : w.status === 'completed' ? 'var(--success)' : 'var(--primary)';
+              const statusIcon = isAborted ? 'dangerous' : hasFlagged ? 'gpp_bad' : isPaused ? 'pause_circle' : w.status === 'completed' ? 'check_circle' : 'play_circle';
+
+              return (
+                <motion.div
+                  key={w.id}
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.04 }}
+                  className="grid gap-3 items-center p-3 rounded-xl"
+                  style={{
+                    gridTemplateColumns: '2fr 1fr 1fr 1fr 0.8fr',
+                    background: hasFlagged || isAborted ? 'rgba(255,180,171,0.04)' : 'var(--surface-container-high)',
+                    border: hasFlagged || isAborted ? '1px solid rgba(255,180,171,0.15)' : '1px solid rgba(70,69,85,0.1)',
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold truncate" style={{ color: 'var(--on-surface)' }}>{w.name}</p>
+                    <p className="text-[9px] font-mono mt-0.5" style={{ color: 'var(--outline)' }}>{w.id}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <M icon={statusIcon} style={{ fontSize: 14, color: statusColor }} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: statusColor }}>{w.status}</span>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-mono" style={{ color: 'var(--on-surface-variant)' }}>{w.created_at ? fmtDateTime(w.created_at) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-mono" style={{ color: 'var(--on-surface-variant)' }}>{w.updated_at ? fmtDateTime(w.updated_at) : '—'}</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-bold">
+                    {tokenSummary.burned > 0 && <span style={{ color: 'var(--success)' }}>{tokenSummary.burned}✓</span>}
+                    {tokenSummary.flagged > 0 && <span style={{ color: 'var(--error)' }}>{tokenSummary.flagged}⚠</span>}
+                    {tokenSummary.revoked > 0 && <span style={{ color: 'var(--error)' }}>{tokenSummary.revoked}✗</span>}
+                    {totalTokens === 0 && <span style={{ color: 'var(--outline)' }}>—</span>}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
       ) : (
-        <EmptyState msym="verified_user" text="No security alerts right now. Launch a compromised task (TASK-002) to trigger violation detection." action="Launch Task" onAction={() => {}} />
+        /* Empty state — no launch button, just explanation */
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 p-4 rounded-2xl" style={{ background: 'var(--surface-container-high)' }}>
+            <M icon="verified_user" style={{ fontSize: 28, color: 'var(--outline)' }} />
+          </div>
+          <h4 className="text-base font-bold font-headline mb-2" style={{ color: 'var(--on-surface)' }}>Security Audit Log</h4>
+          <p className="text-sm max-w-md mb-3" style={{ color: 'var(--on-surface-variant)' }}>
+            This tab displays a complete audit trail of all workflow executions across your TokenFlow environment.
+          </p>
+          <p className="text-xs max-w-md" style={{ color: 'var(--outline)' }}>
+            When workflows are launched, each execution is logged here with timestamps, status changes, security violations, kill switch activations, and token lifecycle events. Start a workflow from the <strong style={{ color: 'var(--primary)' }}>Launch</strong> tab to begin populating this audit trail.
+          </p>
+        </div>
       )}
     </motion.div>
   );
@@ -1176,6 +1301,12 @@ function buildChainNodes(chain) {
 }
 
 function fmtTime(v) { if (!v) return '—'; return new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+
+function fmtDateTime(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 
 function evtColor(type) {
   return { MINTED: 'var(--primary)', ACTIVATED: 'var(--secondary)', BURNED: 'var(--success)', REVOKED: 'var(--error)', FLAGGED: 'var(--error)', EXPIRED: 'var(--warning)' }[type] || 'var(--outline)';
