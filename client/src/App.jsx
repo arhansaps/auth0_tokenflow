@@ -1,32 +1,73 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  BadgeCheck,
-  ChevronRight,
-  Database,
-  Flame,
-  LayoutDashboard,
-  Lock,
-  Menu,
-  Play,
-  RefreshCcw,
-  Search,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldX,
-  Sparkles,
-  SquareActivity,
-  TimerReset,
-  Wifi,
-  Workflow,
-  X,
-  Zap,
+  Activity, AlertTriangle, ArrowRight, BadgeCheck, ChevronRight,
+  Database, Flame, LayoutDashboard, Lock, Menu, Play, RefreshCcw,
+  Search, Shield, ShieldAlert, ShieldCheck, ShieldX, Sparkles,
+  SquareActivity, TimerReset, Wifi, Workflow, X, Zap, Eye, KeyRound,
 } from 'lucide-react';
 import { api, getWebSocketUrl } from './api.js';
+
+/* ─── Interactive Particle Canvas ─── */
+function ParticleCanvas() {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let W = canvas.width = window.innerWidth;
+    let H = canvas.height = window.innerHeight;
+    let mouse = { x: W / 2, y: H / 2 };
+    const N = 80;
+    const pts = Array.from({ length: N }, () => ({
+      x: Math.random() * W, y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3,
+      r: Math.random() * 1.5 + 0.5,
+    }));
+    const onMove = (e) => { mouse.x = e.clientX; mouse.y = e.clientY; };
+    window.addEventListener('mousemove', onMove);
+    const onResize = () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; };
+    window.addEventListener('resize', onResize);
+    let raf;
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      pts.forEach(p => {
+        const dx = mouse.x - p.x, dy = mouse.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 120) { p.vx += dx / dist * 0.04; p.vy += dy / dist * 0.04; }
+        p.vx *= 0.97; p.vy *= 0.97;
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+        if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(196,192,255,0.35)';
+        ctx.fill();
+      });
+      for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+        const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 100) {
+          ctx.beginPath();
+          ctx.moveTo(pts[i].x, pts[i].y);
+          ctx.lineTo(pts[j].x, pts[j].y);
+          ctx.strokeStyle = `rgba(196,192,255,${0.06 * (1 - d / 100)})`;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+      raf = requestAnimationFrame(draw);
+    }
+    draw();
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('mousemove', onMove); window.removeEventListener('resize', onResize); };
+  }, []);
+  return <canvas ref={canvasRef} id="particle-canvas" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0 }} />;
+}
+
+/* ─── Material Symbol shortcut ─── */
+const M = ({ icon, className = '', style }) => (
+  <span className={`material-symbols-outlined ${className}`} style={style}>{icon}</span>
+);
 
 /* ═══════════════════════════════════════════════════════════
    Constants
@@ -34,19 +75,19 @@ import { api, getWebSocketUrl } from './api.js';
 const STEP_ORDER = ['READ_OBJECT', 'CALL_INTERNAL_API', 'WRITE_OBJECT'];
 
 const STEP_META = {
-  READ_OBJECT: { label: 'Read Object', icon: '📦', service: 'Cloud Storage', desc: 'Read data from GCS bucket' },
-  CALL_INTERNAL_API: { label: 'Call Internal API', icon: '⚡', service: 'Internal API', desc: 'Process via internal endpoint' },
-  WRITE_OBJECT: { label: 'Write Object', icon: '💾', service: 'Cloud Storage', desc: 'Write results to GCS' },
-  READ_REPO: { label: 'Read Repo', icon: '🚨', service: 'Source Control', desc: 'BLOCKED — unauthorized access attempt' },
+  READ_OBJECT: { label: 'Read Object', msym: 'database', service: 'Cloud Storage', desc: 'Read data from GCS bucket', phase: '01' },
+  CALL_INTERNAL_API: { label: 'Call Internal API', msym: 'api', service: 'Internal API', desc: 'Process via internal endpoint', phase: '02' },
+  WRITE_OBJECT: { label: 'Write Object', msym: 'save', service: 'Cloud Storage', desc: 'Write results to GCS', phase: '03' },
+  READ_REPO: { label: 'Read Repo', msym: 'dangerous', service: 'Source Control', desc: 'BLOCKED — unauthorized access attempt', phase: 'XX' },
 };
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'chain', label: 'Token Chain', icon: Workflow },
-  { id: 'audit', label: 'Audit Log', icon: TimerReset },
-  { id: 'security', label: 'Security Review', icon: ShieldAlert, badgeKey: 'alerts' },
-  { id: 'vault', label: 'Credential Vault', icon: Lock },
-  { id: 'launch', label: 'Launch Task', icon: Play },
+  { id: 'dashboard', label: 'Dashboard', msym: 'space_dashboard' },
+  { id: 'chain', label: 'Token Chain', msym: 'token' },
+  { id: 'audit', label: 'Audit', msym: 'history' },
+  { id: 'security', label: 'Security', msym: 'shield', badgeKey: 'alerts' },
+  { id: 'vault', label: 'Vault', msym: 'lock' },
+  { id: 'launch', label: 'Launch', msym: 'play_arrow' },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -54,7 +95,6 @@ const NAV_ITEMS = [
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
   const [page, setPage] = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [overview, setOverview] = useState(null);
   const [health, setHealth] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -73,10 +113,8 @@ export default function App() {
   const reviewQueue = overview?.reviewQueue || [];
   const currentReview = reviewQueue.find((i) => i.workflowId === selectedWorkflowId) || reviewQueue[0] || null;
   const credentials = overview?.credentials || [];
-
   const chainNodes = buildChainNodes(chain);
 
-  // ─── Data loading ───
   const loadDashboard = useCallback(async (preferredId) => {
     const [o, h, t] = await Promise.all([
       api('/api/dashboard/overview'), api('/api/health'), api('/api/workflows/tasks/list'),
@@ -95,14 +133,13 @@ export default function App() {
   useEffect(() => { loadDashboard().catch((e) => setError(e.message)); }, [loadDashboard]);
   useEffect(() => { loadChain(selectedWorkflowId).catch((e) => setError(e.message)); }, [selectedWorkflowId, loadChain]);
 
-  // WebSocket
   useEffect(() => {
     const ws = new WebSocket(getWebSocketUrl());
     ws.addEventListener('open', () => setSocketState('live'));
     ws.addEventListener('close', () => setSocketState('offline'));
     ws.addEventListener('error', () => setSocketState('degraded'));
     ws.addEventListener('message', (e) => {
-      try { const d = JSON.parse(e.data); if (d.type === 'SECURITY_VIOLATION') setNotice('🛑 Security violation detected — review queue updated.'); } catch {}
+      try { const d = JSON.parse(e.data); if (d.type === 'SECURITY_VIOLATION') setNotice('Security violation detected — review queue updated.'); } catch {}
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
         loadDashboard().then(() => loadChain(selectedWorkflowId)).catch((err) => setError(err.message));
@@ -111,10 +148,8 @@ export default function App() {
     return () => { clearTimeout(refreshTimeoutRef.current); ws.close(); };
   }, [selectedWorkflowId, loadDashboard, loadChain]);
 
-  // Auto-dismiss notices
   useEffect(() => { if (!notice && !error) return; const t = setTimeout(() => { setNotice(''); setError(''); }, 5000); return () => clearTimeout(t); }, [notice, error]);
 
-  // ─── Actions ───
   async function withBusy(name, fn) { setBusyAction(name); setError(''); try { await fn(); } catch (e) { setError(e.message); } finally { setBusyAction(''); } }
 
   function handleStart() {
@@ -134,91 +169,64 @@ export default function App() {
 
   const alertCount = reviewQueue.length;
 
-  // ─── Render ───
-  return (
-    <div className="flex min-h-screen">
-      {/* Overlay for mobile sidebar */}
-      {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/20 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+  function goToChain(wfId) {
+    if (wfId) setSelectedWorkflowId(wfId);
+    setPage('chain');
+  }
 
-      {/* Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-logo">
-          <div className="logo-icon"><Shield className="h-5 w-5" /></div>
-          <div>
-            <p className="text-sm font-bold text-slate-900 tracking-tight">TokenFlow OS</p>
-            <p className="text-[11px] text-slate-400">Agent Security</p>
-          </div>
+  return (
+    <div className="min-h-screen">
+      <ParticleCanvas />
+      {/* ─── Floating Top Navbar ─── */}
+      <nav className="top-navbar">
+        <div className="flex items-center gap-3">
+          <M icon="security" style={{ color: 'var(--primary)', fontSize: 22 }} />
+          <span className="text-base font-bold tracking-[0.15em] uppercase font-headline" style={{ color: 'var(--on-surface)' }}>TokenFlow</span>
         </div>
-        <nav className="sidebar-nav">
-          <p className="px-3 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Navigation</p>
+        <div className="nav-pills">
           {NAV_ITEMS.map((item) => (
-            <button key={item.id} onClick={() => { setPage(item.id); setSidebarOpen(false); }} className={`sidebar-item ${page === item.id ? 'active' : ''}`}>
-              <item.icon className="h-[18px] w-[18px]" />
+            <button key={item.id} onClick={() => setPage(item.id)} className={`nav-pill ${page === item.id ? 'active' : ''}`}>
               {item.label}
-              {item.badgeKey === 'alerts' && alertCount > 0 && <span className="badge badge-danger">{alertCount}</span>}
+              {item.badgeKey === 'alerts' && alertCount > 0 && <span className="badge-dot" />}
             </button>
           ))}
-          <div className="mt-4 border-t border-slate-100 pt-4">
-            <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Workflows</p>
-            <div className="max-h-[200px] space-y-1 overflow-auto">
-              {workflows.slice(0, 8).map((w) => (
-                <button key={w.id} onClick={() => { setSelectedWorkflowId(w.id); setPage('chain'); setSidebarOpen(false); }} className={`sidebar-item text-xs ${w.id === selectedWorkflowId ? 'active' : ''}`}>
-                  <Activity className="h-3.5 w-3.5" />
-                  <span className="truncate">{w.id.replace('wf_', '')}</span>
-                  <StatusPill status={w.status} small />
-                </button>
-              ))}
-              {workflows.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No workflows yet</p>}
-            </div>
-          </div>
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
-            <span className={`dot ${socketState === 'live' ? 'dot-live' : socketState === 'connecting' ? 'dot-connecting' : 'dot-offline'}`} />
-            <span className="text-xs font-medium text-slate-600">Realtime: {socketState}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={handleRefresh} disabled={busyAction === 'refresh'} className="btn-ghost" style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem' }}>
+            <RefreshCcw className="h-3 w-3" /> Sync
+          </button>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full" style={{
+              background: socketState === 'live' ? 'var(--success)' : 'var(--error)',
+              boxShadow: socketState === 'live' ? '0 0 6px var(--success)' : '0 0 6px var(--error)',
+              animation: socketState === 'live' ? 'pulse-subtle 2s infinite' : 'none',
+            }} />
+            <span className="text-[9px] font-bold uppercase tracking-widest font-mono" style={{ color: 'var(--on-surface-variant)' }}>{socketState}</span>
           </div>
         </div>
-      </aside>
+      </nav>
 
-      {/* Main */}
-      <div className="main-content">
-        {/* Top bar */}
-        <div className="top-bar">
-          <div className="flex items-center gap-3">
-            <button className="lg:hidden rounded-lg border border-slate-200 p-2" onClick={() => setSidebarOpen(true)}><Menu className="h-4 w-4 text-slate-500" /></button>
-            <h2 className="text-lg font-semibold text-slate-800">{NAV_ITEMS.find(n => n.id === page)?.label || 'Dashboard'}</h2>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={handleRefresh} disabled={busyAction === 'refresh'} className="btn-ghost text-xs"><RefreshCcw className="h-3.5 w-3.5" /> Refresh</button>
-            <div className="h-8 w-px bg-slate-200" />
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className={`dot ${socketState === 'live' ? 'dot-live' : 'dot-offline'}`} />
-              {socketState}
-            </div>
-          </div>
-        </div>
-
-        {/* Notification bar */}
-        <AnimatePresence>
-          {(notice || error) && (
-            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className={`mx-6 mt-4 flex items-center gap-3 rounded-xl border px-5 py-3 text-sm font-medium ${error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-indigo-200 bg-indigo-50 text-indigo-700'}`}>
-              {error ? <AlertTriangle className="h-4 w-4 flex-shrink-0" /> : <Sparkles className="h-4 w-4 flex-shrink-0" />}
+      <AnimatePresence>
+        {(notice || error) && (
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+            className={`toast ${error ? 'toast-error' : 'toast-info'}`}>
+            <div className="flex items-center gap-2">
+              <M icon={error ? 'error' : 'check_circle'} style={{ fontSize: 16 }} />
               {error || notice}
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Pages */}
-        <div className="flex-1 p-6">
-          <AnimatePresence mode="wait">
-            {page === 'dashboard' && <DashboardPage key="dashboard" workflows={workflows} reviewQueue={reviewQueue} credentials={credentials} health={health} currentWorkflow={currentWorkflow} setPage={setPage} />}
-            {page === 'chain' && <ChainPage key="chain" chainNodes={chainNodes} currentWorkflow={currentWorkflow} onKill={() => handleKill(currentWorkflow?.id)} busyAction={busyAction} />}
-            {page === 'audit' && <AuditPage key="audit" audit={audit} />}
-            {page === 'security' && <SecurityPage key="security" currentReview={currentReview} reviewQueue={reviewQueue} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
-            {page === 'vault' && <VaultPage key="vault" credentials={credentials} health={health} />}
-            {page === 'launch' && <LaunchPage key="launch" tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask} onStart={handleStart} busyAction={busyAction} />}
-          </AnimatePresence>
-        </div>
+      <div className="main-wrap">
+        <AnimatePresence mode="wait">
+          {page === 'dashboard' && <DashboardPage key="d" workflows={workflows} reviewQueue={reviewQueue} credentials={credentials} health={health} goToChain={goToChain} setPage={setPage} />}
+          {page === 'chain' && <ChainPage key="c" workflows={workflows} chainNodes={chainNodes} currentWorkflow={currentWorkflow} selectedWorkflowId={selectedWorkflowId} setSelectedWorkflowId={setSelectedWorkflowId} audit={audit} onKill={() => handleKill(currentWorkflow?.id)} busyAction={busyAction} />}
+          {page === 'audit' && <AuditPage key="a" audit={audit} />}
+          {page === 'security' && <SecurityPage key="s" currentReview={currentReview} reviewQueue={reviewQueue} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
+          {page === 'vault' && <VaultPage key="v" credentials={credentials} health={health} />}
+          {page === 'launch' && <LaunchPage key="l" tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask} onStart={handleStart} busyAction={busyAction} />}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -227,101 +235,144 @@ export default function App() {
 /* ═══════════════════════════════════════════════════════════
    PAGE: Dashboard
    ═══════════════════════════════════════════════════════════ */
-function DashboardPage({ workflows, reviewQueue, credentials, health, currentWorkflow, setPage }) {
-  const totalTokens = workflows.reduce((sum, w) => {
-    const s = w.token_summary || {};
-    return sum + Object.values(s).reduce((a, b) => a + b, 0);
-  }, 0);
-
-  const burnedTokens = workflows.reduce((sum, w) => sum + (w.token_summary?.burned || 0), 0);
+function DashboardPage({ workflows, reviewQueue, credentials, health, setPage, goToChain }) {
+  const totalTokens = workflows.reduce((s, w) => s + Object.values(w.token_summary || {}).reduce((a, b) => a + b, 0), 0);
+  const burnedTokens = workflows.reduce((s, w) => s + (w.token_summary?.burned || 0), 0);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-      {/* Hero banner */}
-      <div className="hero-banner mb-6 anim-fade-up">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      {/* Hero */}
+      <section className="hero-section text-center relative">
         <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">
-              <Shield className="h-3 w-3" /> Secure AI Agent Execution
-            </span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full mb-6" style={{ background: 'rgba(20, 209, 255, 0.08)', border: '1px solid rgba(166, 230, 255, 0.2)' }}>
+            <span className="w-2 h-2 rounded-full animate-pulse-subtle" style={{ background: 'var(--secondary)' }} />
+            <span className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--secondary)' }}>Protocol Active</span>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-white md:text-4xl">
-            Welcome to TokenFlow OS
+          <h1 className="font-headline text-4xl md:text-6xl font-bold tracking-tighter mb-5 leading-tight" style={{ color: 'var(--on-surface)' }}>
+            Secure AI Agents<br /><span style={{ color: 'var(--primary)', fontStyle: 'italic' }}>Before They Act</span>
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/60">
-            Every agent action is restricted by a single-use capability token. Cross-service access is blocked. Credentials never leave the vault. Compromised agents are stopped in real-time.
+          <p className="text-sm md:text-base max-w-lg mx-auto mb-8 leading-relaxed" style={{ color: 'var(--on-surface-variant)' }}>
+            Every agent action is restricted by a single-use capability token. Cross-service access is blocked. Credentials never leave the vault.
           </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button onClick={() => setPage('launch')} className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg transition hover:shadow-xl hover:-translate-y-0.5">
-              <Play className="h-4 w-4" /> Start Secure Execution
-            </button>
-            <button onClick={() => setPage('chain')} className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20">
-              View Token Chain <ChevronRight className="h-4 w-4" />
-            </button>
+          <div className="flex flex-wrap justify-center gap-3">
+            <button onClick={() => setPage('launch')} className="btn-primary"><M icon="play_arrow" style={{ fontSize: 18 }} /> Launch Execution</button>
+            <button onClick={() => setPage('chain')} className="btn-ghost"><M icon="token" style={{ fontSize: 18 }} /> View Protocol</button>
           </div>
+        </div>
+      </section>
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        <MetricCard label="Workflows" value={workflows.length} msym="hub" color="primary" sub="Execution chains" delay={0} />
+        <MetricCard label="Intercepts" value={reviewQueue.length} msym="shield" color="error" sub="Flagged for review" delay={1} />
+        <MetricCard label="Tokens" value={totalTokens} msym="key_visualizer" color="secondary" sub={`${burnedTokens} burned`} delay={2} />
+        <MetricCard label="Credentials" value={credentials.length} msym="lock" color="success" sub="Isolated services" delay={3} />
+      </div>
+
+      {/* Bento Feature Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        {/* Main Feature */}
+        <div className="card p-8 relative overflow-hidden group md:col-span-2">
+          <div className="absolute top-0 right-0 p-6 opacity-15 group-hover:opacity-40 transition-opacity duration-500">
+            <M icon="verified_user" style={{ fontSize: 56, color: 'var(--secondary)' }} />
+          </div>
+          <h3 className="text-xl font-bold mb-3 font-headline" style={{ color: 'var(--on-surface)' }}>Capability-Based Security</h3>
+          <p className="text-sm leading-relaxed max-w-xl" style={{ color: 'var(--on-surface-variant)' }}>
+            Limit AI agents to specific resources using granular permission keys that expire after single execution. Each token is cryptographically bound to one action on one service.
+          </p>
+        </div>
+
+        {/* Token Flow */}
+        <div className="card p-8 group">
+          <div className="flex items-center gap-4 mb-5">
+            <div className="p-3 rounded-xl" style={{ background: 'rgba(196, 192, 255, 0.1)' }}>
+              <M icon="key_visualizer" style={{ color: 'var(--primary)', fontSize: 22 }} />
+            </div>
+            <h3 className="text-lg font-bold font-headline">Token Flow</h3>
+          </div>
+          <p className="text-sm mb-5" style={{ color: 'var(--on-surface-variant)' }}>Every action requires a signed cryptographic token before reaching the service provider.</p>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: '66%' }} />
+          </div>
+        </div>
+
+        {/* Credential Isolation */}
+        <div className="card p-8">
+          <M icon="terminal" style={{ color: 'var(--secondary-container)', fontSize: 32 }} className="mb-4" />
+          <h3 className="text-lg font-bold mb-2 font-headline">Credential Isolation</h3>
+          <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>Your API keys never touch the runtime environment of the AI agent.</p>
         </div>
       </div>
 
-      {/* Metrics */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
-        <MetricCard label="Workflows" value={workflows.length} icon={<Workflow className="h-5 w-5 text-indigo-500" />} color="brand" sub="Execution chains" delay={0} />
-        <MetricCard label="Security Alerts" value={reviewQueue.length} icon={<ShieldAlert className="h-5 w-5 text-rose-500" />} color="rose" sub="Flagged for review" delay={1} />
-        <MetricCard label="Tokens Minted" value={totalTokens} icon={<Zap className="h-5 w-5 text-teal-500" />} color="teal" sub={`${burnedTokens} burned`} delay={2} />
-        <MetricCard label="Vault Credentials" value={credentials.length} icon={<Lock className="h-5 w-5 text-emerald-500" />} color="emerald" sub="Isolated services" delay={3} />
-      </div>
+      {/* Kill Switch + Active Workflows */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        {/* Kill Switch Card */}
+        <div className="card-high p-8 relative" style={{ borderColor: 'rgba(255, 180, 171, 0.2)' }}>
+          <div className="absolute top-4 right-4">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-[0.15em]" style={{ background: 'rgba(255, 180, 171, 0.1)', color: 'var(--error)' }}>Active</span>
+          </div>
+          <M icon="local_fire_department" style={{ color: 'var(--error)', fontSize: 32 }} className="mb-4" />
+          <h3 className="text-lg font-bold mb-2 font-headline">Kill Switch</h3>
+          <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>Instantly sever all AI connections with a single hardware-backed command.</p>
+        </div>
 
-      {/* Quick overview grid */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Recent workflows */}
-        <div className="card rounded-2xl p-5 lg:col-span-2 anim-fade-up stagger-3">
+        {/* Active workflows */}
+        <div className="card p-6 md:col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-slate-800">Recent Workflows</h3>
-            <button onClick={() => setPage('chain')} className="text-xs font-medium text-indigo-500 hover:text-indigo-700 transition flex items-center gap-1">View all <ChevronRight className="h-3 w-3" /></button>
+            <h3 className="text-sm font-bold uppercase tracking-[0.15em]" style={{ color: 'var(--on-surface)' }}>Active Workflows</h3>
+            <button onClick={() => setPage('chain')} className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 transition-all hover:gap-2" style={{ color: 'var(--primary)' }}>
+              View all <ChevronRight className="h-3 w-3" /></button>
           </div>
           {workflows.length === 0 ? (
-            <EmptyState icon={<Workflow />} text="No workflows yet. Launch a task to get started." action="Launch Task" onAction={() => setPage('launch')} />
+            <EmptyState msym="hub" text="No workflows yet. Launch a task to begin." action="Launch" onAction={() => setPage('launch')} />
           ) : (
             <div className="space-y-2">
               {workflows.slice(0, 5).map((w) => (
-                <div key={w.id} className="flex items-center gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 transition hover:bg-white hover:shadow-sm cursor-pointer" onClick={() => { setPage('chain'); }}>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">
-                    <Activity className="h-4 w-4 text-indigo-500" />
+                <motion.div key={w.id} whileHover={{ x: 4 }} className="flex items-center gap-4 p-3 rounded-xl card-interactive"
+                  style={{ background: 'var(--surface-container-high)', border: '1px solid rgba(70,69,85,0.12)', cursor: 'pointer' }}
+                  onClick={() => goToChain(w.id)}>
+                  <div className="p-2 rounded-lg" style={{ background: 'rgba(196,192,255,0.1)' }}>
+                    <M icon="hub" style={{ color: 'var(--primary)', fontSize: 16 }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{w.name}</p>
-                    <p className="text-xs text-slate-400 font-mono">{w.id} • Step {w.current_step}</p>
+                    <p className="text-xs font-bold truncate" style={{ color: 'var(--on-surface)' }}>{w.name}</p>
+                    <p className="text-[10px] font-mono" style={{ color: 'var(--on-surface-variant)' }}>{w.id}</p>
                   </div>
-                  <StatusPill status={w.status} />
-                </div>
+                  <div className="flex items-center gap-2">
+                    <StatusPill status={w.status} />
+                    <ChevronRight className="h-3 w-3" style={{ color: 'var(--outline)' }} />
+                  </div>
+                </motion.div>
               ))}
             </div>
           )}
         </div>
-
-        {/* Enforcement rules */}
-        <div className="card rounded-2xl p-5 anim-fade-up stagger-4">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-emerald-500" /> Enforcement Rules
-          </h3>
-          <div className="space-y-3">
-            {[
-              'One token = one action',
-              'Cross-service access blocked',
-              'Unauthorized steps halt chain',
-              'Credentials isolated in vault',
-              'Tokens are non-transferable',
-              'Human kill switch available',
-            ].map((rule, i) => (
-              <div key={i} className="flex items-start gap-2.5">
-                <div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50">
-                  <BadgeCheck className="h-3 w-3 text-emerald-500" />
-                </div>
-                <p className="text-sm text-slate-600 leading-5">{rule}</p>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
+
+      {/* The Protocol — Vertical Steps */}
+      <section className="mb-8">
+        <h2 className="font-headline text-2xl font-bold text-center mb-2">The TokenFlow Protocol</h2>
+        <div className="w-10 h-1 rounded-full mx-auto mb-10" style={{ background: 'var(--secondary)' }} />
+        <div className="timeline max-w-2xl mx-auto">
+          {[
+            { phase: '01', title: 'Request Origin', desc: 'The AI agent initiates an action request to the internal gateway.', color: 'var(--primary)', msym: 'hub' },
+            { phase: '02', title: 'Token Validation', desc: 'Protocol validates the request against capability policies and mints an execution token.', color: 'var(--secondary)', msym: 'token' },
+            { phase: '03', title: 'Secure Execution', desc: 'Action is performed within a hardened sandbox using the ephemeral token.', color: 'var(--primary-container)', msym: 'play_arrow' },
+            { phase: '04', title: 'Token Burn', desc: 'Token is cryptographically shredded, ensuring the action cannot be replayed.', color: 'var(--error)', msym: 'local_fire_department' },
+          ].map((step, i) => (
+            <motion.div key={step.phase} className="timeline-node" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.15 }}>
+              <div className="timeline-dot" style={{ borderColor: step.color }}>
+                <div className="ping" style={{ background: step.color }} />
+              </div>
+              <div className="card p-6" style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}>
+                <span className="text-[10px] font-bold tracking-[0.2em] uppercase block mb-2" style={{ color: step.color }}>Phase {step.phase}</span>
+                <h4 className="text-base font-bold mb-1 font-headline">{step.title}</h4>
+                <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>{step.desc}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
     </motion.div>
   );
 }
@@ -329,99 +380,148 @@ function DashboardPage({ workflows, reviewQueue, credentials, health, currentWor
 /* ═══════════════════════════════════════════════════════════
    PAGE: Token Chain
    ═══════════════════════════════════════════════════════════ */
-function ChainPage({ chainNodes, currentWorkflow, onKill, busyAction }) {
+function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId, setSelectedWorkflowId, audit, onKill, busyAction }) {
   const burnedCount = chainNodes.filter(n => n.status === 'burned').length;
   const flaggedCount = chainNodes.filter(n => n.status === 'flagged').length;
   const total = chainNodes.length || 1;
   const progress = Math.round((burnedCount / total) * 100);
 
+  // Build CLI log lines from chain nodes + audit
+  const cliLines = [];
+  cliLines.push({ type: 'cmd', text: `tokenflow chain --workflow ${currentWorkflow?.id?.slice(0, 20) || 'none'} --live` });
+  cliLines.push({ type: 'out', text: `Agent: agent-cloud-worker  |  Task: ${currentWorkflow?.name || 'N/A'}` });
+  cliLines.push({ type: 'muted', text: '─'.repeat(48) });
+  chainNodes.forEach((node, i) => {
+    const meta = STEP_META[node.action] || {};
+    if (node.status === 'burned') cliLines.push({ type: 'success', text: `[${String(i+1).padStart(2,'0')}] ✓  ${meta.label || node.action}  →  BURNED  (${fmtTime(node.mintedAt)})` });
+    else if (node.status === 'flagged' || node.status === 'revoked') cliLines.push({ type: 'error', text: `[${String(i+1).padStart(2,'0')}] ✗  ${meta.label || node.action}  →  BLOCKED  [UNAUTHORIZED]` });
+    else if (node.status === 'active') cliLines.push({ type: 'success', text: `[${String(i+1).padStart(2,'0')}] ●  ${meta.label || node.action}  →  EXECUTING...` });
+    else cliLines.push({ type: 'muted', text: `[${String(i+1).padStart(2,'0')}] ○  ${meta.label || node.action}  →  PENDING` });
+  });
+  if (flaggedCount > 0) {
+    cliLines.push({ type: 'muted', text: '─'.repeat(48) });
+    cliLines.push({ type: 'error', text: '⚠  SECURITY VIOLATION DETECTED — workflow paused for review' });
+    cliLines.push({ type: 'warn', text: '   Unauthorized cross-service access attempt intercepted.' });
+  } else if (burnedCount === total && total > 0) {
+    cliLines.push({ type: 'muted', text: '─'.repeat(48) });
+    cliLines.push({ type: 'success', text: '✓  All tokens burned. Execution chain complete.' });
+  }
+
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-      {/* Workflow state header */}
-      <div className="card rounded-2xl p-6 mb-6 anim-fade-up">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      {/* Workflow Selector */}
+      {workflows.length > 1 && (
+        <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
+          <span className="text-[9px] font-bold uppercase tracking-widest flex-shrink-0" style={{ color: 'var(--outline)' }}>Workflow:</span>
+          {workflows.map(w => (
+            <button key={w.id} onClick={() => setSelectedWorkflowId(w.id)}
+              className="flex-shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold font-mono transition-all"
+              style={{
+                background: w.id === selectedWorkflowId ? 'rgba(196,192,255,0.15)' : 'var(--surface-container-high)',
+                border: w.id === selectedWorkflowId ? '1px solid rgba(196,192,255,0.35)' : '1px solid rgba(70,69,85,0.15)',
+                color: w.id === selectedWorkflowId ? 'var(--primary)' : 'var(--on-surface-variant)',
+              }}>
+              {w.id.slice(0, 18)}… <StatusPill status={w.status} small />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="card-glow-primary p-6 mb-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h3 className="text-lg font-semibold text-slate-800">{currentWorkflow?.name || 'No Active Workflow'}</h3>
+              <h3 className="text-lg font-bold font-headline">{currentWorkflow?.name || 'No Active Workflow'}</h3>
               {currentWorkflow && <StatusPill status={currentWorkflow.status} />}
             </div>
-            <p className="text-sm text-slate-500 font-mono">{currentWorkflow?.id || '—'} • Agent: agent-cloud-worker</p>
+            <p className="text-xs font-mono" style={{ color: 'var(--on-surface-variant)' }}>{currentWorkflow?.id || '—'} • Agent: agent-cloud-worker</p>
           </div>
-          <div className="flex gap-2">
-            {currentWorkflow && (
-              <button onClick={onKill} disabled={!currentWorkflow || busyAction === 'kill'} className="btn-danger text-sm">
-                <Flame className="h-4 w-4" /> {busyAction === 'kill' ? 'Halting...' : 'Kill Switch'}
-              </button>
-            )}
-          </div>
+          {currentWorkflow && (
+            <button onClick={onKill} disabled={!currentWorkflow || busyAction === 'kill'} className="btn-danger animate-glow">
+              <M icon="local_fire_department" style={{ fontSize: 16 }} /> {busyAction === 'kill' ? 'Halting…' : 'Kill Switch'}
+            </button>
+          )}
         </div>
-        {/* Progress */}
         <div className="mt-5">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-slate-500">Chain Progress</span>
-            <span className="text-xs font-semibold text-slate-700">{progress}% complete</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--on-surface-variant)' }}>Chain Progress</span>
+            <span className="text-xs font-bold font-mono">{progress}%</span>
           </div>
-          <div className="progress-bar">
-            <div className={`progress-bar-fill ${flaggedCount > 0 ? 'rose' : 'brand'}`} style={{ width: `${progress}%` }} />
+          <div className="progress-track">
+            <div className={`progress-fill ${flaggedCount > 0 ? 'danger' : ''}`} style={{ width: `${progress}%` }} />
           </div>
         </div>
       </div>
 
-      {/* Token Chain DAG */}
-      <div className="card rounded-2xl p-6 anim-fade-up stagger-2">
-        <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-2">
-          <Workflow className="h-4 w-4 text-indigo-500" /> Live Token Chain
-        </h3>
-        <p className="text-xs text-slate-500 mb-6">Single-use capability tokens forming the execution DAG</p>
-
-        <div className="overflow-x-auto pb-4">
-          <div className="flex items-stretch gap-0" style={{ minWidth: `${chainNodes.length * 260}px` }}>
-            {chainNodes.map((node, idx) => (
-              <div key={node.id} className="flex items-center">
-                <motion.div
-                  initial={{ opacity: 0, y: 16, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ delay: idx * 0.12, duration: 0.4, type: 'spring', stiffness: 200 }}
-                  className={`token-node w-[220px] flex-shrink-0 ${node.status}`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Step {String(idx + 1).padStart(2, '0')}</span>
-                    <span className="text-xl">{STEP_META[node.action]?.icon || '❓'}</span>
+      <div className="grid gap-5 md:grid-cols-2 mb-5">
+        {/* Vertical Token Chain */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <M icon="token" style={{ color: 'var(--primary)', fontSize: 18 }} />
+            <h3 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Live Token Chain</h3>
+          </div>
+          <p className="text-xs mb-6" style={{ color: 'var(--on-surface-variant)' }}>Single-use capability tokens • execution DAG</p>
+          <div className="timeline">
+            {chainNodes.map((node, idx) => {
+              const meta = STEP_META[node.action] || {};
+              const isError = node.action === 'READ_REPO';
+              const dotClass = node.status === 'burned' ? 'burned' : node.status === 'flagged' || node.status === 'revoked' ? 'flagged' : node.status === 'active' ? 'active' : 'idle';
+              return (
+                <motion.div key={node.id} className="timeline-node" initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.1, duration: 0.35 }}>
+                  <div className={`timeline-dot ${dotClass}`}><div className="ping" /></div>
+                  <div className="card p-4" style={isError ? { borderColor: 'rgba(255,180,171,0.3)' } : {}}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-bold tracking-[0.2em] uppercase" style={{ color: isError ? 'var(--error)' : 'var(--primary)' }}>Phase {meta.phase || '??'}</span>
+                      <StatusPill status={node.status} small />
+                    </div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="p-1.5 rounded-lg" style={{ background: isError ? 'rgba(255,180,171,0.1)' : 'rgba(196,192,255,0.08)' }}>
+                        <M icon={meta.msym || 'help'} style={{ fontSize: 15, color: isError ? 'var(--error)' : 'var(--primary)' }} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold font-headline" style={{ color: isError ? 'var(--error)' : 'var(--on-surface)' }}>{meta.label || node.action}</h4>
+                        <p className="text-[9px]" style={{ color: 'var(--on-surface-variant)' }}>{meta.service}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[9px]" style={{ color: 'var(--outline)' }}>{node.token?.id?.slice(0, 14) || '—'}</span>
+                      {node.mintedAt && <span className="text-[9px]" style={{ color: 'var(--outline)' }}>{fmtTime(node.mintedAt)}</span>}
+                    </div>
                   </div>
-                  <h4 className={`text-base font-semibold ${node.action === 'READ_REPO' ? 'text-rose-600' : 'text-slate-800'}`}>
-                    {STEP_META[node.action]?.label || node.action}
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">{STEP_META[node.action]?.service}</p>
-                  <div className="mt-4 flex items-center justify-between">
-                    <StatusPill status={node.status} />
-                    <span className="font-mono text-[10px] text-slate-400">{node.token?.id?.slice(0, 12) || '—'}</span>
-                  </div>
-                  {node.mintedAt && <p className="mt-2 text-[10px] text-slate-400">{fmtTime(node.mintedAt)}</p>}
                 </motion.div>
-                {idx < chainNodes.length - 1 && (
-                  <div className="chain-arrow">
-                    <motion.div initial={{ opacity: 0, scaleX: 0 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ delay: idx * 0.12 + 0.2 }}>
-                      <svg width="40" height="24" viewBox="0 0 40 24" fill="none">
-                        <line x1="0" y1="12" x2="28" y2="12" stroke={node.status === 'burned' ? '#10B981' : node.status === 'flagged' ? '#F43F5E' : '#CBD5E1'} strokeWidth="2" strokeDasharray={node.status === 'flagged' ? '4 4' : 'none'} />
-                        <polygon points="28,7 36,12 28,17" fill={node.status === 'burned' ? '#10B981' : node.status === 'flagged' ? '#F43F5E' : '#CBD5E1'} />
-                      </svg>
-                    </motion.div>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
-      </div>
 
-      {/* Workflow snapshot */}
-      {currentWorkflow && (
-        <div className="mt-4 grid gap-4 md:grid-cols-3 anim-fade-up stagger-3">
-          <InfoCard label="Workflow ID" value={currentWorkflow.id} />
-          <InfoCard label="Current Step" value={`Step ${currentWorkflow.current_step}`} />
-          <InfoCard label="Task" value={currentWorkflow.applicant_data?.name || '—'} />
+        {/* CLI Terminal */}
+        <div className="flex flex-col gap-4">
+          <div className="cli-terminal flex-1">
+            <div className="cli-titlebar">
+              <span className="cli-dot cli-dot-red" />
+              <span className="cli-dot cli-dot-yellow" />
+              <span className="cli-dot cli-dot-green" />
+              <span className="cli-titlebar-label">tokenflow-cli v2.0 — execution log</span>
+            </div>
+            <div className="cli-body">
+              {cliLines.map((line, i) => (
+                <div key={i} className={`cli-${line.type}`}>
+                  {line.type === 'cmd' && <><span className="cli-prompt">$</span> <span className="cli-cmd">{line.text}</span></>}
+                  {line.type !== 'cmd' && line.text}
+                </div>
+              ))}
+              <div className="cli-out" style={{ marginTop: 4 }}><span className="cli-cursor" /></div>
+            </div>
+          </div>
+          {currentWorkflow && (
+            <div className="grid grid-cols-1 gap-3">
+              <InfoCard label="Workflow ID" value={currentWorkflow.id} msym="hub" />
+              <InfoCard label="Step" value={`Step ${currentWorkflow.current_step}`} msym="skip_next" />
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </motion.div>
   );
 }
@@ -431,39 +531,32 @@ function ChainPage({ chainNodes, currentWorkflow, onKill, busyAction }) {
    ═══════════════════════════════════════════════════════════ */
 function AuditPage({ audit }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-      <div className="card rounded-2xl p-6 anim-fade-up">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="card p-6">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-            <TimerReset className="h-4 w-4 text-indigo-500" /> Audit Log
-          </h3>
-          <span className="text-xs text-slate-400">{audit.length} events</span>
+          <div className="flex items-center gap-2">
+            <M icon="history" style={{ color: 'var(--primary)', fontSize: 18 }} />
+            <h3 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Audit Log</h3>
+          </div>
+          <span className="text-[10px] font-mono" style={{ color: 'var(--outline)' }}>{audit.length} events</span>
         </div>
-        <p className="text-xs text-slate-500 mb-6">Immutable token lifecycle events with timestamps and actors</p>
-
+        <p className="text-xs mb-6" style={{ color: 'var(--on-surface-variant)' }}>Immutable token lifecycle events</p>
         {audit.length === 0 ? (
-          <EmptyState icon={<TimerReset />} text="Audit events will appear here once a workflow is running." />
+          <EmptyState msym="history" text="Audit events appear once a workflow runs." />
         ) : (
-          <div className="space-y-2 max-h-[calc(100vh-240px)] overflow-auto pr-1">
+          <div className="space-y-2 max-h-[calc(100vh-260px)] overflow-auto pr-1">
             {audit.map((entry, idx) => (
-              <motion.div
-                key={`${entry.id}-${entry.timestamp}`}
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.02 }}
-                className="flex items-start gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4 transition hover:bg-white hover:shadow-sm"
-              >
+              <motion.div key={`${entry.id}-${entry.timestamp}`} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.02 }}
+                className="flex items-start gap-4 p-4 rounded-xl" style={{ background: 'var(--surface-container-high)', border: '1px solid rgba(70,69,85,0.1)' }}>
                 <EventIcon type={entry.event_type} />
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`text-xs font-bold uppercase tracking-wider ${eventColor(entry.event_type)}`}>{entry.event_type}</span>
-                  </div>
-                  <p className="text-sm text-slate-700">{describeAudit(entry)}</p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-400">{entry.token_id}</p>
+                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: evtColor(entry.event_type) }}>{entry.event_type}</span>
+                  <p className="text-sm mt-0.5" style={{ color: 'var(--on-surface)' }}>{describeAudit(entry)}</p>
+                  <p className="mt-1 font-mono text-[10px]" style={{ color: 'var(--outline)' }}>{entry.token_id}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-xs text-slate-500">{fmtTime(entry.timestamp)}</p>
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400 mt-0.5">{entry.actor}</p>
+                  <p className="text-[10px]" style={{ color: 'var(--on-surface-variant)' }}>{fmtTime(entry.timestamp)}</p>
+                  <p className="font-mono text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--outline)' }}>{entry.actor}</p>
                 </div>
               </motion.div>
             ))}
@@ -479,43 +572,64 @@ function AuditPage({ audit }) {
    ═══════════════════════════════════════════════════════════ */
 function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyAction }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       {currentReview ? (
-        <div className="space-y-4 anim-fade-up">
-          {/* Alert banner */}
-          <div className="rounded-2xl border-2 border-rose-200 bg-gradient-to-br from-rose-50 to-white p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 flex-shrink-0">
-                <ShieldX className="h-6 w-6 text-rose-500" />
+        <div className="space-y-4">
+          {/* Big Alert Header */}
+          <div className="security-alert-card">
+            <div className="relative z-10">
+              <div className="flex items-center gap-3 mb-4">
+                <motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ repeat: Infinity, duration: 2.5 }}
+                  className="p-3 rounded-2xl flex-shrink-0" style={{ background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,180,171,0.3)' }}>
+                  <M icon="gpp_bad" style={{ color: 'var(--error)', fontSize: 32 }} />
+                </motion.div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-[0.15em]" style={{ background: 'rgba(255,80,80,0.15)', color: 'var(--error)', border: '1px solid rgba(255,180,171,0.3)' }}>⚠ Security Violation</span>
+                  </div>
+                  <h3 className="text-xl font-bold font-headline" style={{ color: 'var(--on-surface)' }}>{currentReview.workflowName}</h3>
+                </div>
               </div>
-              <div className="flex-1">
-                <span className="inline-block rounded-full bg-rose-100 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-600 mb-2">Security Violation Detected</span>
-                <h3 className="text-xl font-bold text-slate-900">{currentReview.workflowName}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{currentReview.review?.summary || 'Unauthorized action detected. Manual intervention required.'}</p>
+              <div className="p-4 rounded-xl font-mono text-xs leading-relaxed" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,180,171,0.1)', color: 'rgba(199,196,216,0.8)' }}>
+                <span style={{ color: 'rgba(255,180,171,0.6)' }}>ALERT </span>
+                {currentReview.review?.summary || 'Unauthorized action detected. Manual intervention required.'}
               </div>
             </div>
           </div>
 
-          {/* Details grid */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <DetailCard label="Attempted Service" value={currentReview.review?.attempted_service || 'n/a'} danger icon={<Database className="h-4 w-4" />} />
-            <DetailCard label="Attempted Resource" value={currentReview.review?.attempted_resource || 'n/a'} danger icon={<Search className="h-4 w-4" />} />
-            <DetailCard label="Attempted Action" value={currentReview.review?.attempted_action || 'n/a'} icon={<Zap className="h-4 w-4" />} />
-            <DetailCard label="Task" value={currentReview.review?.taskData?.name || currentReview.task?.name || 'n/a'} icon={<Activity className="h-4 w-4" />} />
+          {/* Detail Grid */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="card-glow-error p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <M icon="dns" style={{ fontSize: 13, color: 'var(--error)' }} />
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--error)' }}>Attempted Service</p>
+              </div>
+              <p className="text-sm font-bold font-mono" style={{ color: 'var(--error)' }}>{currentReview.review?.attempted_service || 'n/a'}</p>
+            </div>
+            <div className="card-glow-error p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <M icon="search" style={{ fontSize: 13, color: 'var(--error)' }} />
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--error)' }}>Attempted Resource</p>
+              </div>
+              <p className="text-sm font-bold font-mono" style={{ color: 'var(--error)' }}>{currentReview.review?.attempted_resource || 'n/a'}</p>
+            </div>
+            <DetailCard label="Attempted Action" value={currentReview.review?.attempted_action || 'n/a'} msym="bolt" />
+            <DetailCard label="Task" value={currentReview.review?.taskData?.name || currentReview.task?.name || 'n/a'} msym="assignment" />
           </div>
 
           {/* Violations */}
           {(currentReview.review?.violations || []).length > 0 && (
-            <div className="card rounded-2xl p-5">
-              <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" /> Violations
+            <div className="card p-5">
+              <h4 className="text-sm font-bold uppercase tracking-[0.1em] mb-4 flex items-center gap-2">
+                <M icon="warning" style={{ color: 'var(--warning)', fontSize: 16 }} /> Violations Detected
               </h4>
               <div className="space-y-2">
                 {(currentReview.review?.violations || []).map((v, i) => (
-                  <div key={i} className="rounded-xl border border-rose-100 bg-rose-50/50 p-4">
-                    <p className="text-xs font-bold uppercase tracking-wider text-rose-500 mb-1">{v.type}</p>
-                    <p className="text-sm text-slate-700 leading-6">{v.message}</p>
-                  </div>
+                  <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
+                    className="violation-card">
+                    <p className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--error)' }}>{v.type}</p>
+                    <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>{v.message}</p>
+                  </motion.div>
                 ))}
               </div>
             </div>
@@ -523,18 +637,16 @@ function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyActi
 
           {/* Actions */}
           <div className="flex gap-3">
-            <button onClick={() => onResume(currentReview.workflowId)} disabled={busyAction === 'resume'} className="btn-success flex-1 text-sm">
-              <BadgeCheck className="h-4 w-4" /> {busyAction === 'resume' ? 'Resuming...' : 'Override & Resume'}
+            <button onClick={() => onResume(currentReview.workflowId)} disabled={busyAction === 'resume'} className="btn-success flex-1">
+              <M icon="check_circle" style={{ fontSize: 16 }} /> {busyAction === 'resume' ? 'Resuming…' : 'Override & Resume'}
             </button>
-            <button onClick={() => onRevoke(currentReview.workflowId)} disabled={busyAction === 'revoke'} className="btn-danger flex-1 text-sm">
-              <X className="h-4 w-4" /> {busyAction === 'revoke' ? 'Revoking...' : 'Revoke & Abort'}
+            <button onClick={() => onRevoke(currentReview.workflowId)} disabled={busyAction === 'revoke'} className="btn-danger flex-1">
+              <M icon="cancel" style={{ fontSize: 16 }} /> {busyAction === 'revoke' ? 'Revoking…' : 'Revoke & Abort'}
             </button>
           </div>
         </div>
       ) : (
-        <div className="anim-fade-up">
-          <EmptyState icon={<ShieldCheck />} text="No security alerts. Start a compromised agent task (TASK-002) to trigger cross-service violation detection." action="Launch Task" />
-        </div>
+        <EmptyState msym="verified_user" text="No security alerts right now. Launch a compromised task (TASK-002) to trigger violation detection." action="Launch Task" onAction={() => {}} />
       )}
     </motion.div>
   );
@@ -545,56 +657,58 @@ function SecurityPage({ currentReview, reviewQueue, onResume, onRevoke, busyActi
    ═══════════════════════════════════════════════════════════ */
 function VaultPage({ credentials, health }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-      {/* Vault status */}
-      <div className="card-dark rounded-2xl p-6 mb-6 anim-fade-up">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10">
-            <Lock className="h-7 w-7 text-indigo-400" />
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      {/* Vault Header */}
+      <div className="card p-6 mb-6 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-5" style={{ background: 'radial-gradient(circle at 80% 50%, var(--primary), transparent 60%)' }} />
+        <div className="relative flex items-center gap-4">
+          <div className="p-3 rounded-2xl" style={{ background: 'rgba(196,192,255,0.1)', boxShadow: '0 0 20px rgba(196,192,255,0.1)' }}>
+            <M icon="lock" style={{ color: 'var(--primary)', fontSize: 28 }} />
           </div>
-          <div>
-            <h3 className="text-lg font-semibold text-white">Auth0 Token Vault</h3>
-            <p className="text-sm text-slate-400">Agent never sees raw secrets — all access through vault proxy</p>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold font-headline">Auth0 Token Vault</h3>
+            <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>Agent never sees raw secrets — all access through vault proxy</p>
           </div>
-          <div className="ml-auto">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
-              <span className="dot dot-live" /> Connected
-            </span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold" style={{ background: 'rgba(52,211,153,0.1)', color: 'var(--success)', border: '1px solid rgba(52,211,153,0.2)' }}>
+            <span className="w-2 h-2 rounded-full animate-pulse-subtle" style={{ background: 'var(--success)' }} /> Connected
+          </span>
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 anim-fade-up stagger-2">
+      {/* Credentials Grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
         {credentials.map((cred, idx) => (
-          <motion.div key={cred.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="card rounded-2xl p-5 hover:shadow-lg transition-all">
+          <motion.div key={cred.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.08 }} className="card p-5 card-interactive">
             <div className="flex items-start justify-between mb-4">
-              <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${cred.status === 'restricted' ? 'bg-rose-50' : 'bg-indigo-50'}`}>
-                {cred.status === 'restricted' ? <ShieldX className="h-5 w-5 text-rose-500" /> : <Lock className="h-5 w-5 text-indigo-500" />}
+              <div className="p-2.5 rounded-xl" style={{ background: cred.status === 'restricted' ? 'rgba(255,180,171,0.1)' : 'rgba(196,192,255,0.1)' }}>
+                <M icon={cred.status === 'restricted' ? 'gpp_bad' : 'lock'} style={{ fontSize: 20, color: cred.status === 'restricted' ? 'var(--error)' : 'var(--primary)' }} />
               </div>
               <StatusPill status={cred.status === 'restricted' ? 'flagged' : 'burned'} label={cred.status} />
             </div>
-            <h4 className="font-semibold text-slate-800">{cred.display_name}</h4>
-            <p className="text-xs text-slate-500 mt-1 font-mono uppercase tracking-wider">{cred.connection_type}</p>
-            <p className="text-xs text-slate-400 mt-3 font-mono">{cred.service_name}</p>
-            {cred.last_accessed && <p className="text-[10px] text-slate-400 mt-2">Last used: {fmtTime(cred.last_accessed)}</p>}
+            <h4 className="font-bold font-headline text-sm">{cred.display_name}</h4>
+            <p className="text-[10px] mt-1 font-mono uppercase tracking-widest" style={{ color: 'var(--outline)' }}>{cred.connection_type}</p>
+            <p className="text-[10px] mt-2 font-mono" style={{ color: 'var(--outline)' }}>{cred.service_name}</p>
+            {cred.last_accessed && <p className="text-[10px] mt-2" style={{ color: 'var(--outline)' }}>Used: {fmtTime(cred.last_accessed)}</p>}
           </motion.div>
         ))}
       </div>
 
-      {/* Vault info */}
-      <div className="mt-6 card rounded-2xl p-5 anim-fade-up stagger-4">
-        <h4 className="text-sm font-semibold text-slate-800 mb-3">How Vault Protection Works</h4>
+      {/* How Vault Works */}
+      <div className="card p-6">
+        <h4 className="text-sm font-bold uppercase tracking-[0.1em] font-headline mb-4">How Vault Protection Works</h4>
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            { step: '1', title: 'Token Scoped', desc: 'Execution token specifies which credential is needed' },
-            { step: '2', title: 'Vault Proxy Retrieves', desc: 'Backend requests credential from Auth0 Token Vault' },
-            { step: '3', title: 'Agent Uses, Never Sees', desc: 'Action executed via proxy — raw secret never exposed' },
+            { step: '1', title: 'Token Scoped', desc: 'Execution token specifies which credential is needed', msym: 'key' },
+            { step: '2', title: 'Vault Retrieves', desc: 'Backend requests credential from Auth0 Token Vault', msym: 'cloud_download' },
+            { step: '3', title: 'Agent Uses, Never Sees', desc: 'Action executed via proxy — raw secret never exposed', msym: 'visibility_off' },
           ].map((s) => (
-            <div key={s.step} className="flex gap-3 rounded-xl bg-slate-50 p-4">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-sm font-bold text-indigo-600 flex-shrink-0">{s.step}</span>
+            <div key={s.step} className="flex gap-3 p-4 rounded-xl" style={{ background: 'var(--surface-container-high)', border: '1px solid rgba(70,69,85,0.1)' }}>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg flex-shrink-0" style={{ background: 'rgba(196,192,255,0.1)' }}>
+                <span className="text-sm font-bold font-headline" style={{ color: 'var(--primary)' }}>{s.step}</span>
+              </div>
               <div>
-                <p className="text-sm font-semibold text-slate-800">{s.title}</p>
-                <p className="text-xs text-slate-500 mt-0.5 leading-5">{s.desc}</p>
+                <p className="text-sm font-bold font-headline">{s.title}</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--on-surface-variant)' }}>{s.desc}</p>
               </div>
             </div>
           ))}
@@ -609,54 +723,64 @@ function VaultPage({ credentials, health }) {
    ═══════════════════════════════════════════════════════════ */
 function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction }) {
   const sel = tasks.find(t => t.id === selectedTask);
-
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-8 anim-fade-up">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-lg shadow-indigo-200">
-            <Play className="h-7 w-7 text-white" />
+        <div className="text-center mb-10">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-container))', boxShadow: '0 0 30px rgba(196,192,255,0.2)' }}>
+            <M icon="play_arrow" className="text-white" style={{ fontSize: 32, color: 'var(--on-primary)' }} />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">Launch Agent Task</h2>
-          <p className="text-sm text-slate-500 mt-2">Select a task scenario and execute a secure, token-gated agent workflow</p>
+          <h2 className="text-2xl font-bold font-headline tracking-tight">Launch Agent Task</h2>
+          <p className="text-sm mt-2" style={{ color: 'var(--on-surface-variant)' }}>Select a scenario and execute a secure, token-gated agent workflow</p>
         </div>
 
-        <div className="space-y-3 mb-6 anim-fade-up stagger-2">
+        <div className="space-y-3 mb-6">
           {tasks.map((t) => (
-            <button key={t.id} onClick={() => setSelectedTask(t.id)} className={`w-full text-left rounded-2xl border-2 p-5 transition-all ${t.id === selectedTask ? 'border-indigo-500 bg-indigo-50/50 shadow-md shadow-indigo-100' : 'border-slate-200 bg-white hover:border-indigo-200 hover:shadow-sm'}`}>
+            <button key={t.id} onClick={() => setSelectedTask(t.id)}
+              className="w-full text-left p-5 rounded-[2rem] transition-all"
+              style={{
+                background: t.id === selectedTask ? 'var(--surface-container)' : 'var(--surface-container-low)',
+                border: t.id === selectedTask ? '2px solid rgba(196,192,255,0.4)' : '2px solid rgba(70,69,85,0.1)',
+                boxShadow: t.id === selectedTask ? '0 0 20px rgba(196,192,255,0.08)' : 'none',
+              }}>
               <div className="flex items-start gap-4">
-                <div className={`flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0 ${t.malicious ? 'bg-rose-100' : 'bg-emerald-100'}`}>
-                  {t.malicious ? <ShieldAlert className="h-5 w-5 text-rose-500" /> : <ShieldCheck className="h-5 w-5 text-emerald-500" />}
+                <div className="p-2.5 rounded-xl flex-shrink-0" style={{ background: t.malicious ? 'rgba(255,180,171,0.1)' : 'rgba(52,211,153,0.1)' }}>
+                  <M icon={t.malicious ? 'gpp_bad' : 'verified_user'} style={{ fontSize: 20, color: t.malicious ? 'var(--error)' : 'var(--success)' }} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-semibold text-slate-800">{t.name}</h4>
-                    {t.malicious && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">Compromised</span>}
-                    {!t.malicious && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Normal</span>}
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="text-sm font-bold font-headline">{t.name}</h4>
+                    <span className="text-[8px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded" style={{
+                      background: t.malicious ? 'rgba(255,180,171,0.1)' : 'rgba(52,211,153,0.1)',
+                      color: t.malicious ? 'var(--error)' : 'var(--success)',
+                    }}>{t.malicious ? 'Compromised' : 'Normal'}</span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 leading-5">{t.description}</p>
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--on-surface-variant)' }}>{t.description}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {(t.steps || []).map((s, i) => (
-                      <span key={i} className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{s.action}</span>
+                      <span key={i} className="px-2 py-0.5 rounded text-[9px] font-mono font-medium" style={{ background: 'var(--surface-container-highest)', color: 'var(--on-surface-variant)' }}>{s.action}</span>
                     ))}
-                    {t.malicious_step && <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-500">⚠ {t.malicious_step.action}</span>}
+                    {t.malicious_step && <span className="px-2 py-0.5 rounded text-[9px] font-mono font-medium" style={{ background: 'rgba(255,180,171,0.1)', color: 'var(--error)' }}>⚠ {t.malicious_step.action}</span>}
                   </div>
                 </div>
-                <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 flex-shrink-0 mt-1 ${t.id === selectedTask ? 'border-indigo-500 bg-indigo-500' : 'border-slate-300'}`}>
-                  {t.id === selectedTask && <div className="h-2 w-2 rounded-full bg-white" />}
+                <div className="flex h-5 w-5 items-center justify-center rounded-full flex-shrink-0 mt-1" style={{
+                  border: `2px solid ${t.id === selectedTask ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                  background: t.id === selectedTask ? 'var(--primary)' : 'transparent',
+                }}>
+                  {t.id === selectedTask && <div className="h-2 w-2 rounded-full" style={{ background: 'var(--on-primary)' }} />}
                 </div>
               </div>
             </button>
           ))}
         </div>
 
-        <button onClick={onStart} disabled={busyAction === 'start'} className="btn-primary w-full py-4 text-base anim-fade-up stagger-4">
-          <Play className="h-5 w-5" /> {busyAction === 'start' ? 'Starting Execution...' : 'Start Secure Execution'}
+        <button onClick={onStart} disabled={busyAction === 'start'} className="btn-primary w-full py-4 text-sm" style={{ boxShadow: '0 0 30px rgba(196,192,255,0.3)' }}>
+          <M icon="play_arrow" style={{ fontSize: 20 }} /> {busyAction === 'start' ? 'Starting Execution…' : 'Start Secure Execution'}
         </button>
 
         {sel && (
-          <p className="text-center text-xs text-slate-400 mt-4">
-            {sel.malicious ? '⚠ This task simulates a compromised agent attempting unauthorized cross-service access.' : '✓ This task demonstrates a normal execution flow completing cleanly.'}
+          <p className="text-center text-xs mt-4" style={{ color: 'var(--outline)' }}>
+            {sel.malicious ? '⚠ Simulates a compromised agent attempting unauthorized cross-service access.' : '✓ Demonstrates a normal execution flow completing cleanly.'}
           </p>
         )}
       </div>
@@ -665,59 +789,76 @@ function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction 
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Shared components
+   Shared Components
    ═══════════════════════════════════════════════════════════ */
-function MetricCard({ label, value, icon, color, sub, delay }) {
+function MetricCard({ label, value, msym, color, sub, delay }) {
+  const colorMap = { primary: 'var(--primary)', secondary: 'var(--secondary)', error: 'var(--error)', success: 'var(--success)' };
+  const c = colorMap[color] || 'var(--primary)';
   return (
-    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: delay * 0.08, duration: 0.4 }} className={`metric-card ${color}`}>
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</span>
-        {icon}
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: delay * 0.08 }} className="metric-card">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[8px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--on-surface-variant)' }}>{label}</span>
+        <div className="p-1.5 rounded-lg" style={{ background: `color-mix(in srgb, ${c} 10%, transparent)` }}><M icon={msym} style={{ fontSize: 14, color: c }} /></div>
       </div>
-      <p className="text-3xl font-bold text-slate-900 tracking-tight">{String(value).padStart(2, '0')}</p>
-      <p className="text-xs text-slate-400 mt-1">{sub}</p>
+      <p className="text-2xl font-bold font-headline">{String(value).padStart(2, '0')}</p>
+      <p className="text-[10px] mt-1" style={{ color: 'var(--outline)' }}>{sub}</p>
     </motion.div>
   );
 }
 
 function StatusPill({ status, small, label }) {
   const display = label || status;
-  return <span className={`pill pill-${status} ${small ? 'text-[9px] px-2 py-0' : ''}`}><span className={`dot ${status === 'burned' || status === 'completed' ? 'bg-emerald-500' : status === 'active' || status === 'running' ? 'bg-indigo-500' : status === 'flagged' || status === 'revoked' || status === 'aborted' ? 'bg-rose-500' : status === 'paused' ? 'bg-amber-500' : 'bg-slate-400'}`} style={{ width: 6, height: 6 }} />{display}</span>;
+  const dotColor = { burned: 'var(--success)', completed: 'var(--success)', active: 'var(--primary)', running: 'var(--primary)', flagged: 'var(--error)', revoked: 'var(--error)', aborted: 'var(--error)', paused: 'var(--warning)' }[status] || 'var(--outline)';
+  return (
+    <span className={`pill pill-${status} ${small ? 'text-[8px] px-1.5 py-0' : ''}`}>
+      <span className="dot" style={{ width: 5, height: 5, background: dotColor, boxShadow: `0 0 5px ${dotColor}` }} />
+      {display}
+    </span>
+  );
 }
 
 function EventIcon({ type }) {
-  const config = { MINTED: ['bg-indigo-50', 'text-indigo-500'], ACTIVATED: ['bg-sky-50', 'text-sky-500'], BURNED: ['bg-emerald-50', 'text-emerald-500'], REVOKED: ['bg-rose-50', 'text-rose-500'], FLAGGED: ['bg-rose-50', 'text-rose-500'] };
-  const [bg, text] = config[type] || ['bg-slate-50', 'text-slate-500'];
-  return <div className={`flex h-9 w-9 items-center justify-center rounded-lg flex-shrink-0 ${bg}`}><Zap className={`h-4 w-4 ${text}`} /></div>;
-}
-
-function InfoCard({ label, value }) {
+  const map = { MINTED: ['var(--primary)', 'token'], ACTIVATED: ['var(--secondary)', 'check_circle'], BURNED: ['var(--success)', 'local_fire_department'], REVOKED: ['var(--error)', 'cancel'], FLAGGED: ['var(--error)', 'gpp_bad'] };
+  const [c, icon] = map[type] || ['var(--outline)', 'help'];
   return (
-    <div className="card rounded-xl p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
-      <p className="text-sm font-semibold text-slate-800 font-mono truncate">{value}</p>
+    <div className="flex h-9 w-9 items-center justify-center rounded-xl flex-shrink-0" style={{ background: `color-mix(in srgb, ${c} 10%, transparent)` }}>
+      <M icon={icon} style={{ fontSize: 16, color: c }} />
     </div>
   );
 }
 
-function DetailCard({ label, value, danger, icon }) {
+function InfoCard({ label, value, msym }) {
   return (
-    <div className={`card rounded-xl p-4 ${danger ? 'border-rose-100' : ''}`}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-1">
-        {icon && <span className={danger ? 'text-rose-400' : 'text-slate-400'}>{icon}</span>}
-        <p className={`text-[10px] font-semibold uppercase tracking-wider ${danger ? 'text-rose-500' : 'text-slate-400'}`}>{label}</p>
+        <M icon={msym} style={{ fontSize: 13, color: 'var(--outline)' }} />
+        <p className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>{label}</p>
       </div>
-      <p className={`text-sm font-semibold font-mono ${danger ? 'text-rose-700' : 'text-slate-800'}`}>{value}</p>
+      <p className="text-sm font-bold font-mono truncate">{value}</p>
     </div>
   );
 }
 
-function EmptyState({ icon, text, action, onAction }) {
+function DetailCard({ label, value, danger, msym }) {
+  return (
+    <div className="card p-4" style={danger ? { borderColor: 'rgba(255,180,171,0.2)' } : {}}>
+      <div className="flex items-center gap-2 mb-1">
+        <M icon={msym} style={{ fontSize: 13, color: danger ? 'var(--error)' : 'var(--outline)' }} />
+        <p className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: danger ? 'var(--error)' : 'var(--outline)' }}>{label}</p>
+      </div>
+      <p className="text-sm font-bold font-mono" style={{ color: danger ? 'var(--error)' : 'var(--on-surface)' }}>{value}</p>
+    </div>
+  );
+}
+
+function EmptyState({ msym, text, action, onAction }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">{icon}</div>
-      <p className="text-sm text-slate-500 max-w-xs mb-4">{text}</p>
-      {action && onAction && <button onClick={onAction} className="btn-primary text-sm">{action}</button>}
+      <div className="mb-4 p-4 rounded-2xl" style={{ background: 'var(--surface-container-high)' }}>
+        <M icon={msym} style={{ fontSize: 28, color: 'var(--outline)' }} />
+      </div>
+      <p className="text-sm max-w-xs mb-4" style={{ color: 'var(--on-surface-variant)' }}>{text}</p>
+      {action && onAction && <button onClick={onAction} className="btn-primary text-xs">{action}</button>}
     </div>
   );
 }
@@ -733,8 +874,8 @@ function buildChainNodes(chain) {
 
 function fmtTime(v) { if (!v) return '—'; return new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
 
-function eventColor(type) {
-  return { MINTED: 'text-indigo-600', ACTIVATED: 'text-sky-600', BURNED: 'text-emerald-600', REVOKED: 'text-rose-600', FLAGGED: 'text-rose-600', EXPIRED: 'text-amber-600' }[type] || 'text-slate-600';
+function evtColor(type) {
+  return { MINTED: 'var(--primary)', ACTIVATED: 'var(--secondary)', BURNED: 'var(--success)', REVOKED: 'var(--error)', FLAGGED: 'var(--error)', EXPIRED: 'var(--warning)' }[type] || 'var(--outline)';
 }
 
 function describeAudit(entry) {
