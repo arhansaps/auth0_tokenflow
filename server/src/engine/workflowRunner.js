@@ -30,11 +30,12 @@ class WorkflowRunner {
     const workflowId = `wf_${uuidv4().slice(0, 12)}`;
     const deterministic = opts.deterministic || false;
     const stepDelay = deterministic ? 50 : (opts.stepDelay || STEP_DELAY);
+    const workflowType = opts.workflowType || 'mission';
 
     db.prepare(`
-      INSERT INTO workflows (id, name, status, applicant_data, current_step)
-      VALUES (?, ?, 'running', ?, 0)
-    `).run(workflowId, `Agent Task — ${taskData.name}`, JSON.stringify(taskData));
+      INSERT INTO workflows (id, name, status, applicant_data, workflow_type, current_step)
+      VALUES (?, ?, 'running', ?, ?, 0)
+    `).run(workflowId, `Agent Task — ${taskData.name}`, JSON.stringify(taskData), workflowType);
 
     broadcast({
       type: 'WORKFLOW_EVENT',
@@ -388,9 +389,65 @@ class WorkflowRunner {
     return db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflowId);
   }
 
-  listWorkflows() {
+  listWorkflows(options = {}) {
     const db = getDb();
-    return db.prepare('SELECT * FROM workflows ORDER BY created_at DESC').all();
+    const { includeTestbench = false, workflowType = null } = options;
+
+    if (workflowType) {
+      return db.prepare(`
+        SELECT * FROM workflows
+        WHERE COALESCE(workflow_type, 'mission') = ?
+        ORDER BY created_at DESC
+      `).all(workflowType);
+    }
+
+    if (includeTestbench) {
+      return db.prepare('SELECT * FROM workflows ORDER BY created_at DESC').all();
+    }
+
+    return db.prepare(`
+      SELECT * FROM workflows
+      WHERE COALESCE(workflow_type, 'mission') != 'testbench'
+      ORDER BY created_at DESC
+    `).all();
+  }
+
+  clearWorkflows(options = {}) {
+    const db = getDb();
+    const { workflowTypes = ['mission'] } = options;
+    const placeholders = workflowTypes.map(() => '?').join(', ');
+    const workflows = db.prepare(`
+      SELECT id FROM workflows
+      WHERE COALESCE(workflow_type, 'mission') IN (${placeholders})
+    `).all(...workflowTypes);
+
+    if (workflows.length === 0) {
+      return { count: 0, workflowIds: [] };
+    }
+
+    const workflowIds = workflows.map((workflow) => workflow.id);
+    const deleteAudit = db.prepare('DELETE FROM audit_log WHERE workflow_id = ?');
+    const deleteTokens = db.prepare('DELETE FROM tokens WHERE workflow_id = ?');
+    const deleteWorkflow = db.prepare('DELETE FROM workflows WHERE id = ?');
+
+    db.transaction((ids) => {
+      for (const workflowId of ids) {
+        deleteAudit.run(workflowId);
+        deleteTokens.run(workflowId);
+        deleteWorkflow.run(workflowId);
+      }
+    })(workflowIds);
+
+    broadcast({
+      type: 'WORKFLOW_EVENT',
+      payload: {
+        event: 'CLEARED',
+        workflowIds,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    return { count: workflowIds.length, workflowIds };
   }
 
   _updateWorkflow(workflowId, status, currentStep) {

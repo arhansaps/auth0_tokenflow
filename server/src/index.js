@@ -43,8 +43,8 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/tokens', tokenRoutes);
-app.use('/api/workflows', workflowRoutes);
 app.use('/api/workflows', uploadRoutes);
+app.use('/api/workflows', workflowRoutes);
 app.use('/api/vault', vaultRoutes);
 app.use('/api/testbench', testbenchRoutes);
 

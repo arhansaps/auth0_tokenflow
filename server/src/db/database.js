@@ -29,6 +29,15 @@ export function getDb() {
     db.exec('ALTER TABLE tokens ADD COLUMN nonce TEXT');
   }
 
+  // Add workflow_type column if missing so testbench runs can be hidden from mission control
+  try {
+    db.prepare('SELECT workflow_type FROM workflows LIMIT 1').get();
+  } catch {
+    db.exec("ALTER TABLE workflows ADD COLUMN workflow_type TEXT NOT NULL DEFAULT 'mission'");
+  }
+
+  db.exec("UPDATE workflows SET workflow_type = 'mission' WHERE workflow_type IS NULL OR workflow_type = ''");
+
   // Seed vault credentials if empty
   const count = db.prepare('SELECT COUNT(*) as count FROM vault_credentials').get();
   if (count.count === 0) {

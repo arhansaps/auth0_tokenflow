@@ -45,7 +45,7 @@ export default function TestbenchPage() {
     setRunning('');
   }
 
-  const categoryColors = { safe: 'var(--success)', attack: 'var(--error)', control: 'var(--warning)' };
+  const categoryColors = { safe: 'var(--success)', attack: 'var(--error)', control: 'var(--warning)', uploaded: 'var(--primary)' };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -142,7 +142,7 @@ export default function TestbenchPage() {
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg" style={{ background: `color-mix(in srgb, ${catColor} 12%, transparent)` }}>
-                    <M icon={sc.malicious ? 'gpp_bad' : sc.category === 'control' ? 'tune' : 'verified_user'} style={{ fontSize: 16, color: catColor }} />
+                    <M icon={sc.category === 'uploaded' ? 'upload_file' : sc.malicious ? 'gpp_bad' : sc.category === 'control' ? 'tune' : 'verified_user'} style={{ fontSize: 16, color: catColor }} />
                   </div>
                   <span className="text-[8px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded" style={{ background: `color-mix(in srgb, ${catColor} 10%, transparent)`, color: catColor }}>{sc.category}</span>
                 </div>

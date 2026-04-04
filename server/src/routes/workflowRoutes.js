@@ -67,6 +67,15 @@ router.post('/:id/kill', async (req, res) => {
   }
 });
 
+router.post('/clear', (req, res) => {
+  try {
+    const result = workflowRunner.clearWorkflows({ workflowTypes: ['mission'] });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/:id', (req, res) => {
   const workflow = workflowRunner.getWorkflow(req.params.id);
   if (!workflow) {

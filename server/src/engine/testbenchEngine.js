@@ -27,7 +27,7 @@ class TestbenchEngine {
    * @returns {object} — test run result
    */
   async runScenario(scenarioId) {
-    const scenario = ALL_TASKS.find(t => t.id === scenarioId);
+    const scenario = this._resolveScenario(scenarioId);
     if (!scenario) throw new Error(`Scenario ${scenarioId} not found`);
 
     const runId = `run_${uuidv4().slice(0, 12)}`;
@@ -45,6 +45,7 @@ class TestbenchEngine {
       const result = await workflowRunner.startWorkflow(scenario, {
         deterministic: true,
         stepDelay: 100,
+        workflowType: 'testbench',
       });
       const workflowId = result.workflowId;
 
@@ -137,7 +138,7 @@ class TestbenchEngine {
    * Get all available test scenarios.
    */
   getScenarios() {
-    return ALL_TASKS.map(t => ({
+    const baseScenarios = ALL_TASKS.map(t => ({
       id: t.id,
       name: t.name,
       description: t.description,
@@ -146,6 +147,9 @@ class TestbenchEngine {
       incident_mapping: t.incident_mapping,
       steps: t.steps,
     }));
+
+    const uploadedScenarios = this._getUploadedScenarios();
+    return [...baseScenarios, ...uploadedScenarios];
   }
 
   /**
@@ -193,6 +197,40 @@ class TestbenchEngine {
     }
 
     throw new Error(`Workflow ${workflowId} did not complete within ${RUN_TIMEOUT}ms`);
+  }
+
+  _resolveScenario(scenarioId) {
+    const builtInScenario = ALL_TASKS.find(t => t.id === scenarioId);
+    if (builtInScenario) {
+      return builtInScenario;
+    }
+
+    return this._getUploadedScenarios().find((scenario) => scenario.id === scenarioId) || null;
+  }
+
+  _getUploadedScenarios() {
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM uploaded_workflows ORDER BY uploaded_at DESC').all();
+
+    return rows.map((row) => {
+      let definition = {};
+      try {
+        definition = JSON.parse(row.definition);
+      } catch {
+        definition = {};
+      }
+
+      return {
+        id: row.id,
+        name: definition.name || row.name,
+        description: definition.description || row.description || 'Uploaded custom workflow',
+        category: 'uploaded',
+        malicious: false,
+        incident_mapping: 'Custom uploaded workflow validated against the same TokenFlow security invariants.',
+        steps: definition.steps || [],
+        source: 'uploaded',
+      };
+    });
   }
 }
 

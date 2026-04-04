@@ -9,7 +9,7 @@ const M = ({ icon, className = '', style }) => (
 /* ═══════════════════════════════════════════════════════════
    UPLOAD PAGE — Workflow upload with validation & preview
    ═══════════════════════════════════════════════════════════ */
-export default function UploadPage({ setPage }) {
+export default function UploadPage({ setPage, onRunUploadedWorkflow }) {
   const [templates, setTemplates] = useState([]);
   const [uploaded, setUploaded] = useState([]);
   const [jsonInput, setJsonInput] = useState('');
@@ -19,9 +19,24 @@ export default function UploadPage({ setPage }) {
   const [busy, setBusy] = useState('');
   const fileInputRef = useRef(null);
 
+  async function loadTemplates() {
+    try {
+      const response = await api('/api/workflows/templates');
+      setTemplates(response.templates || []);
+    } catch {
+      setTemplates([]);
+    }
+  }
+
+  async function loadUploadedWorkflows() {
+    const response = await api('/api/workflows/upload');
+    setUploaded(response.workflows || []);
+    return response.workflows || [];
+  }
+
   useEffect(() => {
-    api('/api/workflows/templates').then(d => setTemplates(d.templates || [])).catch(() => {});
-    api('/api/workflows/upload').then(d => setUploaded(d.workflows || [])).catch(() => {});
+    loadTemplates();
+    loadUploadedWorkflows().catch(() => setUploaded([]));
   }, []);
 
   function handleFileSelect(e) {
@@ -74,26 +89,36 @@ export default function UploadPage({ setPage }) {
         body: JSON.stringify({ definition: preview }),
       });
       setUploadResult(r);
-      // Refresh uploaded list
-      const list = await api('/api/workflows/upload');
-      setUploaded(list.workflows || []);
-    } catch (e) {
-      // Try to parse validation errors
       try {
-        const payload = JSON.parse(e.message);
-        setErrors(payload.errors || [e.message]);
+        await loadUploadedWorkflows();
       } catch {
-        setErrors([e.message]);
+        setUploaded((current) => {
+          const optimisticEntry = {
+            id: r.id,
+            name: r.name,
+            description: r.description,
+            definition: preview,
+            status: 'validated',
+          };
+          return [optimisticEntry, ...current.filter((workflow) => workflow.id !== r.id)];
+        });
       }
+    } catch (e) {
+      setErrors([e.message]);
     }
     setBusy('');
   }
 
   async function handleRunUploaded(id) {
     setBusy(`run-${id}`);
+    setErrors([]);
     try {
-      await api(`/api/workflows/upload/${id}/run`, { method: 'POST' });
-      setPage('chain');
+      if (onRunUploadedWorkflow) {
+        await onRunUploadedWorkflow(id);
+      } else {
+        await api(`/api/workflows/upload/${id}/run`, { method: 'POST' });
+        setPage('chain');
+      }
     } catch (e) {
       setErrors([e.message]);
     }

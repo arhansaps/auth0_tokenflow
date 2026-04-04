@@ -92,7 +92,7 @@ const NAV_ITEMS = [
   { id: 'security', label: 'Security', msym: 'shield', badgeKey: 'alerts' },
   { id: 'testbench', label: 'Testbench', msym: 'science' },
   { id: 'upload', label: 'Upload', msym: 'upload_file' },
-  { id: 'launch', label: 'Launch', msym: 'play_arrow' },
+  { id: 'launch', label: 'Mock Launch', msym: 'play_arrow' },
   { id: 'incident', label: 'Incident', msym: 'gpp_bad' },
 ];
 
@@ -155,7 +155,7 @@ export default function App() {
     ws.addEventListener('close', () => setSocketState('offline'));
     ws.addEventListener('error', () => setSocketState('degraded'));
     ws.addEventListener('message', (e) => {
-      try { const d = JSON.parse(e.data); if (d.type === 'SECURITY_VIOLATION') setNotice('Security violation detected — review queue updated.'); } catch {}
+      try { const d = JSON.parse(e.data); if (d.type === 'SECURITY_VIOLATION') setNotice('Security violation detected — review queue updated.'); } catch { }
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
         loadDashboard().then(() => loadChain(selectedWorkflowIdRef.current)).catch((err) => setError(err.message));
@@ -181,6 +181,30 @@ export default function App() {
   function handleResume(id) { withBusy('resume', async () => { await api(`/api/workflows/${id}/resume`, { method: 'POST' }); setNotice('Workflow resumed.'); await loadDashboard(id); await loadChain(id); }); }
   function handleRevoke(id) { withBusy('revoke', async () => { await api(`/api/workflows/${id}/revoke`, { method: 'POST' }); setNotice('Workflow aborted.'); await loadDashboard(id); await loadChain(id); }); }
   function handleKill(id) { if (!id) return; withBusy('kill', async () => { await api(`/api/workflows/${id}/kill`, { method: 'POST' }); setNotice('Kill switch engaged.'); await loadDashboard(id); await loadChain(id); }); }
+  async function focusWorkflow(workflowId, message) {
+    setPage('chain');
+    setSelectedWorkflowId(workflowId);
+    await loadDashboard(workflowId);
+    await loadChain(workflowId);
+    if (message) {
+      setNotice(message);
+    }
+  }
+  function handleClearWorkflows() {
+    withBusy('clear-workflows', async () => {
+      const result = await api('/api/workflows/clear', { method: 'POST' });
+      setSelectedWorkflowId(null);
+      setChain([]);
+      setAudit([]);
+      setNotice(result.count ? `Cleared ${result.count} tracked workflow${result.count === 1 ? '' : 's'} from Token Chain.` : 'No tracked workflows to clear.');
+      await loadDashboard();
+    });
+  }
+  async function handleUploadedWorkflowRun(uploadedWorkflowId) {
+    const result = await api(`/api/workflows/upload/${uploadedWorkflowId}/run`, { method: 'POST' });
+    await focusWorkflow(result.workflowId, `Uploaded workflow ${result.taskData?.name || uploadedWorkflowId} started.`);
+    return result;
+  }
   function handleRefresh() { withBusy('refresh', async () => { await loadDashboard(); await loadChain(selectedWorkflowId); setNotice('Dashboard refreshed.'); }); }
 
   const alertCount = reviewQueue.length;
@@ -319,13 +343,13 @@ export default function App() {
                 setPage={setPage}
               />
             )}
-            {page === 'chain' && <ChainPage key="c" workflows={workflows} chainNodes={chainNodes} currentWorkflow={currentWorkflow} selectedWorkflowId={selectedWorkflowId} setSelectedWorkflowId={setSelectedWorkflowId} audit={audit} onKill={() => handleKill(currentWorkflow?.id)} busyAction={busyAction} />}
+            {page === 'chain' && <ChainPage key="c" workflows={workflows} chainNodes={chainNodes} currentWorkflow={currentWorkflow} selectedWorkflowId={selectedWorkflowId} setSelectedWorkflowId={setSelectedWorkflowId} audit={audit} onKill={() => handleKill(currentWorkflow?.id)} onClearWorkflows={handleClearWorkflows} busyAction={busyAction} />}
             {page === 'audit' && <AuditPage key="a" audit={audit} />}
             {page === 'security' && <SecurityPage key="s" currentReview={currentReview} reviewQueue={reviewQueue} workflows={workflows} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
             {page === 'vault' && <VaultPage key="v" credentials={credentials} health={health} />}
             {page === 'launch' && <LaunchPage key="l" tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask} onStart={handleStart} busyAction={busyAction} />}
             {page === 'testbench' && <TestbenchPage key="tb" />}
-            {page === 'upload' && <UploadPage key="up" setPage={setPage} />}
+            {page === 'upload' && <UploadPage key="up" setPage={setPage} onRunUploadedWorkflow={handleUploadedWorkflowRun} />}
             {page === 'incident' && <IncidentPage key="inc" />}
           </motion.div>
         </AnimatePresence>
@@ -666,7 +690,7 @@ function DashboardPage({ workflows, reviewQueue, credentials, health, currentWor
 /* ═══════════════════════════════════════════════════════════
    PAGE: Token Chain
    ═══════════════════════════════════════════════════════════ */
-function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId, setSelectedWorkflowId, audit, onKill, busyAction }) {
+function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId, setSelectedWorkflowId, audit, onKill, onClearWorkflows, busyAction }) {
   const burnedCount = chainNodes.filter(n => n.status === 'burned').length;
   const flaggedCount = chainNodes.filter(n => n.status === 'flagged').length;
   const liveCount = chainNodes.filter((n) => n.status === 'active' || n.status === 'pending').length;
@@ -681,10 +705,10 @@ function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId,
   cliLines.push({ type: 'muted', text: '─'.repeat(48) });
   chainNodes.forEach((node, i) => {
     const meta = STEP_META[node.action] || {};
-    if (node.status === 'burned') cliLines.push({ type: 'success', text: `[${String(i+1).padStart(2,'0')}] ✓  ${meta.label || node.action}  →  BURNED  (${fmtTime(node.mintedAt)})` });
-    else if (node.status === 'flagged' || node.status === 'revoked') cliLines.push({ type: 'error', text: `[${String(i+1).padStart(2,'0')}] ✗  ${meta.label || node.action}  →  BLOCKED  [UNAUTHORIZED]` });
-    else if (node.status === 'active') cliLines.push({ type: 'success', text: `[${String(i+1).padStart(2,'0')}] ●  ${meta.label || node.action}  →  EXECUTING...` });
-    else cliLines.push({ type: 'muted', text: `[${String(i+1).padStart(2,'0')}] ○  ${meta.label || node.action}  →  PENDING` });
+    if (node.status === 'burned') cliLines.push({ type: 'success', text: `[${String(i + 1).padStart(2, '0')}] ✓  ${meta.label || node.action}  →  BURNED  (${fmtTime(node.mintedAt)})` });
+    else if (node.status === 'flagged' || node.status === 'revoked') cliLines.push({ type: 'error', text: `[${String(i + 1).padStart(2, '0')}] ✗  ${meta.label || node.action}  →  BLOCKED  [UNAUTHORIZED]` });
+    else if (node.status === 'active') cliLines.push({ type: 'success', text: `[${String(i + 1).padStart(2, '0')}] ●  ${meta.label || node.action}  →  EXECUTING...` });
+    else cliLines.push({ type: 'muted', text: `[${String(i + 1).padStart(2, '0')}] ○  ${meta.label || node.action}  →  PENDING` });
   });
   if (flaggedCount > 0) {
     cliLines.push({ type: 'muted', text: '─'.repeat(48) });
@@ -698,10 +722,10 @@ function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId,
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       {/* Workflow Selector */}
-      {workflows.length > 1 && (
+      {workflows.length > 0 && (
         <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
           <span className="text-[9px] font-bold uppercase tracking-widest flex-shrink-0" style={{ color: 'var(--outline)' }}>Workflow:</span>
-          {workflows.map(w => (
+          {workflows.length > 1 && workflows.map(w => (
             <button key={w.id} onClick={() => setSelectedWorkflowId(w.id)}
               className="flex-shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold font-mono transition-all"
               style={{
@@ -713,16 +737,18 @@ function ChainPage({ chainNodes, currentWorkflow, workflows, selectedWorkflowId,
             </button>
           ))}
           <button
-            onClick={() => { setSelectedWorkflowId(null); }}
+            onClick={onClearWorkflows}
+            disabled={busyAction === 'clear-workflows'}
             className="flex-shrink-0 px-2.5 py-1.5 rounded-xl text-[10px] font-bold transition-all flex items-center gap-1"
             style={{
               background: 'rgba(255,180,171,0.08)',
               border: '1px solid rgba(255,180,171,0.2)',
               color: 'var(--error)',
+              opacity: busyAction === 'clear-workflows' ? 0.6 : 1,
             }}
-            title="Clear workflow selector"
+            title="Clear tracked mission workflows"
           >
-            <M icon="close" style={{ fontSize: 12 }} /> Clear
+            <M icon="delete_sweep" style={{ fontSize: 12 }} /> {busyAction === 'clear-workflows' ? 'Clearing…' : 'Clear'}
           </button>
         </div>
       )}

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS workflows (
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   applicant_data TEXT DEFAULT '{}',
+  workflow_type TEXT NOT NULL DEFAULT 'mission',
   current_step INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
