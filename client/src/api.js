@@ -38,5 +38,12 @@ export function getWebSocketUrl() {
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+  // In local dev, connect straight to the backend to avoid Vite proxy churn
+  // from React StrictMode mount/unmount cycles.
+  if (import.meta.env.DEV && window.location.port === '5173') {
+    return `${protocol}//${window.location.hostname}:8000/ws`;
+  }
+
   return `${protocol}//${window.location.host}/ws`;
 }

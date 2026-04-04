@@ -1,99 +1,136 @@
 # TokenFlow OS
 
-TokenFlow OS is a capability-based execution runtime for AI agents that turns every decision into an auditable, pauseable, revocable token step. Instead of letting an agent jump from input to outcome as a black box, the runtime mints a scoped token for each action, burns it after use, records the event in an immutable audit log, and pauses the chain the moment policy or fairness signals suggest a human should intervene.
+**Capability-based execution runtime for AI agents** — preventing credential misuse and over-permissioned access via tokenized execution, modeled on the Google Vertex AI "Double Agent" incident.
+
+## What This Project Does
+
+TokenFlow OS is a security testbench and execution platform that demonstrates how capability tokens prevent the exact class of AI security failure exposed by the Vertex AI incident. Every agent action is restricted by a single-use capability token. Cross-service access is blocked. Credentials never leave the vault.
+
+## The Incident: Google Vertex AI "Double Agent" (April 2026)
+
+A flaw in Google Cloud's AI system allowed agents to act as "double agents":
+- Attackers extracted **service-account credentials** from the agent runtime
+- The AI gained **unauthorized access to internal systems** and customer data
+- The agent had **broad standing permissions** — no per-action scoping
+- There was **no kill switch** — the agent continued operating until manual intervention
+- **Key insight**: The AI did not hack the system; it misused credentials it was already given
+
+## How TokenFlow Prevents This
+
+| Failure Mode | Vertex Impact | TokenFlow Defense |
+|---|---|---|
+| Credentials in runtime | Agent extracts keys | Vault proxy — agent never sees secrets |
+| Over-permissioned agent | Access any service | Per-action token scoping |
+| Cross-service movement | GCS → source control → DB | Service scope enforcement |
+| No audit trail | Breach undetected hours | Immutable audit + WebSocket alerts |
+| No kill switch | Agent continues unimpeded | Kill switch revokes all tokens |
+| Credential replay | Stolen cred reused | Burn-after-use + nonce |
+| No human review | Agent fully autonomous | Step-up auth + review gates |
 
 ## Architecture
 
-```text
-+-----------------------------------------------------------------------------------------------+
-|                  Mission Control UI (React + Tailwind)                                        |
-|  live token chain | review queue | audit feed | vault status | kill switch                    |
-+-----------------------------------------------+-----------------------------------------------+
-                                                |
-                                                | REST + WebSocket
-                                                v
-+-----------------------------------------------------------------------------------------------+
-|                        TokenFlow API (Node + Express)                                          |
-|  /api/tokens     mint / consume / revoke / audit / chain                                      |
-|  /api/workflows  start / resume / revoke / kill / review queue                                |
-|  /api/dashboard  operational overview for the frontend                                         |
-|  /api/vault      Auth0 Token Vault status and credential registry                              |
-+--------------------------+----------------------------+-----------------------------+-----------+
-                           |                            |                             |
-                           v                            v                             v
-                +--------------------+      +--------------------+         +-------------------+
-                | Policy Engine      |      | Workflow Runner    |         | SQLite Audit DB   |
-                | mint checks        |      | loan demo steps    |         | tokens / audits   |
-                | bias checks        |      | pause / resume     |         | workflows         |
-                +----------+---------+      +----------+---------+         +-------------------+
-                           |                            |
-                           | brokered service calls     |
-                           v                            v
-                +--------------------------------------------------------------------------------+
-                |                         Auth0 Token Vault + Auth0 API                           |
-                | OpenAI / SendGrid / external credentials live here, never in the agent runtime |
-                +--------------------------------------------------------------------------------+
+```
++────────────────────────────────────────────────────────────────+
+│        Mission Control UI (React + Tailwind)                    │
+│  landing | dashboard | chain | testbench | upload | security    │
++──────────────────────────┬─────────────────────────────────────+
+                           │ REST + WebSocket
+                           ▼
++────────────────────────────────────────────────────────────────+
+│              TokenFlow API (Node + Express)                      │
+│  /api/tokens       mint / consume / revoke / audit / chain      │
+│  /api/workflows    start / resume / revoke / kill               │
+│  /api/testbench    run scenario / run suite / results           │
+│  /api/workflows    upload / templates / schema                  │
+│  /api/vault        credentials / status                         │
+│  /api/dashboard    operational overview                         │
++───────────┬──────────────┬──────────────┬──────────────────────+
+            │              │              │
+            ▼              ▼              ▼
+  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+  │Policy Engine │ │Workflow Runner│ │ SQLite DB    │
+  │scope checks  │ │step execution│ │tokens/audits │
+  │service gates │ │replay detect │ │test results  │
+  └──────┬───────┘ └──────┬───────┘ └──────────────┘
+         │                │
+         ▼                ▼
+  ┌────────────────────────────────────────────┐
+  │  Auth0 Token Vault (credential boundary)   │
+  │  Secrets stored here, never in agent       │
+  └────────────────────────────────────────────┘
 ```
 
-## How Auth0 Token Vault Is Used
+## Features
 
-Auth0 Token Vault is the credential boundary of the system. TokenFlow never gives the agent raw third-party secrets. Instead:
+### Capability Token Engine
+- **Mint → Activate → Burn** lifecycle for every action
+- Single-use tokens with TTL expiry
+- Nonce-based replay prevention
+- Flagging and revocation
 
-1. The workflow asks for a capability token for a single action.
-2. The backend policy engine decides whether that token can exist.
-3. When an action needs an external service, the backend requests the credential through the Auth0-backed vault service in [`server/src/services/vaultService.js`](./server/src/services/vaultService.js).
-4. The backend executes the action on behalf of the agent and only returns the result payload.
+### Policy Engine
+- Cross-service isolation enforcement
+- Scope escalation detection
+- Step ordering validation
+- Workflow definition validation (for uploads)
 
-For the demo, the vault broker is used for:
+### Credential Vault
+- Credentials stored via Auth0 Token Vault (RFC 8693 token exchange)
+- Agent never sees raw secrets — vault proxy executes on behalf
+- Mock mode for local development
 
-- identity verification lookups during `READ_APPLICANT_DATA`
-- credit bureau access during `RUN_CREDIT_SCORE`
-- SendGrid access during `SEND_DECISION_EMAIL`
+### Workflow Runner
+- Executes token-gated workflows step by step
+- Supports malicious step injection detection
+- Kill switch, pause/resume, human review gates
+- Deterministic mode for testing
 
-The frontend exposes only vault metadata from `/api/vault/credentials`: service names, connection type, status, and last access time. Secret material is never returned to the browser or to the workflow runner.
+### Security Testbench
+7 pre-built attack/control scenarios with 12 invariant assertions:
+1. Normal safe workflow
+2. Double Agent credential exfiltration
+3. Cross-service lateral movement
+4. Replay / token reuse attack
+5. Scope escalation attempt
+6. Kill switch engagement
+7. Human review intervention
 
-## Token Engine First
+**12 assertions verified per scenario:**
+- One token = one action
+- Burned tokens cannot be reused
+- Expired tokens cannot be consumed
+- Action matches token scope
+- Service matches token context
+- Resource scope not exceeded
+- Unauthorized steps blocked
+- Cross-service movement blocked
+- Kill switch stops execution
+- Pause/resume/revoke works
+- Secrets not exposed in payloads
+- Audit log is complete
 
-Core backend surfaces:
+### Workflow Upload
+- JSON-based workflow definitions
+- Client-side and server-side validation
+- Preview before execution
+- Starter templates
+- Path traversal protection
+- Action/verb consistency enforcement
 
-- Token schema: [`server/src/db/schema.sql`](./server/src/db/schema.sql)
-- Mint route: [`server/src/routes/tokenRoutes.js`](./server/src/routes/tokenRoutes.js)
-- Consume route: [`server/src/routes/tokenRoutes.js`](./server/src/routes/tokenRoutes.js)
-- Revoke route: [`server/src/routes/tokenRoutes.js`](./server/src/routes/tokenRoutes.js)
-- Policy checks: [`server/src/engine/policyEngine.js`](./server/src/engine/policyEngine.js)
-- Token-gating middleware: [`server/src/middleware/tokenMiddleware.js`](./server/src/middleware/tokenMiddleware.js)
+## Dashboard Pages
 
-The token record includes:
-
-```json
-{
-  "id": "tok_xxx",
-  "workflow_id": "wf_xxx",
-  "action_type": "RUN_CREDIT_SCORE",
-  "resource_id": "APP-001",
-  "agent_id": "agent-loan-processor",
-  "minted_at": "2026-04-03T13:09:06.565Z",
-  "expires_at": "2026-04-03T13:14:06.565Z",
-  "status": "pending | active | burned | revoked | flagged",
-  "context": {},
-  "parent_token_id": "tok_previous",
-  "step_index": 1
-}
-```
-
-`POST /api/tokens/consume/:id` requires the `x-capability-token` header to match the token being consumed, so execution is impossible without a live capability token.
-
-## Demo Workflow
-
-The loan walkthrough in the UI follows this chain:
-
-1. `READ_APPLICANT_DATA`
-2. `RUN_CREDIT_SCORE`
-3. Human review when confidence is low or ZIP is on the flagged list
-4. `APPROVE_OR_DENY`
-5. `SEND_DECISION_EMAIL`
-
-Applicant `APP-001` is intentionally configured to trigger the bias-review path.
+| Page | Purpose |
+|---|---|
+| **Home (Landing)** | Explains the incident, how TokenFlow works, product guide |
+| **Dashboard** | Operational overview: workflows, tokens, review queue |
+| **Token Chain** | Live token lifecycle visualization with CLI terminal |
+| **Security** | Human review panel for flagged violations |
+| **Testbench** | Run attack scenarios, verify invariants |
+| **Upload** | Upload custom workflow definitions |
+| **Incident** | Side-by-side architecture comparison |
+| **Launch** | Select and start scenarios |
+| **Audit** | Immutable event timeline |
+| **Vault** | Credential registry (names only, never values) |
 
 ## Run Locally
 
@@ -105,51 +142,95 @@ npm install
 
 ### 2. Configure environment
 
-The repo already includes a local `.env` and a matching `.env.example`. Update the Auth0 values as needed.
+Copy `.env.example` to `.env` and update Auth0 values as needed. For local development, `USE_AUTH0=false` runs in mock mode.
 
-### 3. Run the full local stack
+### 3. Run the full stack
 
 ```bash
 npm run dev
 ```
 
-This starts:
+- API: `http://localhost:8000`
+- Frontend: `http://localhost:5173`
 
-- API on `http://localhost:8000`
-- Vite frontend on `http://localhost:5173`
-
-### 4. Run the production-style build locally
+### 4. Production build
 
 ```bash
 npm run build
 npm run start
 ```
 
-This serves the built frontend and API together from `http://localhost:8000`.
+## Testing
 
-## Trigger The Demo Scenario
+### Run the security testbench
 
-1. Open the Mission Control dashboard.
-2. Select applicant `Jordan Williams (APP-001)`.
-3. Click `Start Loan Chain`.
-4. Watch the chain mint and burn the first token.
-5. The workflow pauses on `RUN_CREDIT_SCORE` and raises a bias anomaly for ZIP `48201`.
-6. Use `Resume Chain` or `Revoke Chain` from the Human Review Panel.
-7. Inspect the live audit feed and token chain colors as the workflow finishes.
+```bash
+node --test server/src/tests/testbench.test.js
+```
 
-## Security Properties
+### Run from the UI
 
-If the agent is compromised, it still cannot:
+1. Open the app → navigate to **Testbench**
+2. Click **Run All 7 Scenarios**
+3. Inspect pass/fail results with expected vs actual comparisons
 
-- execute arbitrary actions without a valid capability token
-- reuse a token after it has been burned
-- mint future-step tokens out of order
-- access third-party credentials directly
-- hide or rewrite the audit history
-- continue execution after a human reviewer revokes or kills the chain
+## Workflow Upload Schema
 
-## Deployment Notes
+```json
+{
+  "name": "My Workflow",
+  "description": "Optional description",
+  "steps": [
+    {
+      "action": "READ_OBJECT",
+      "service": "gcs",
+      "resource": "data/input.json",
+      "actionVerb": "read"
+    },
+    {
+      "action": "CALL_INTERNAL_API",
+      "service": "internal-api",
+      "resource": "api/process",
+      "actionVerb": "invoke"
+    },
+    {
+      "action": "WRITE_OBJECT",
+      "service": "gcs",
+      "resource": "output/result.json",
+      "actionVerb": "write"
+    }
+  ]
+}
+```
 
-- Frontend: Vite build output in `client/dist`
-- Backend: Express serves the built frontend when present
-- Good fit for Railway or Render: build with `npm install && npm run build`, start with `npm run start`
+**Allowed actions:** `READ_OBJECT`, `CALL_INTERNAL_API`, `WRITE_OBJECT`
+**Allowed services:** `gcs`, `internal-api`
+**Prohibited services:** `source-control`, `internal-repo`
+
+## Sample Scenarios
+
+| Scenario | Type | What Happens |
+|---|---|---|
+| Normal Cloud Processing | Safe | All steps complete, tokens burn cleanly |
+| Double Agent | Attack | Agent diverts to source-control → BLOCKED |
+| Lateral Movement | Attack | Cross-service pivot → BLOCKED |
+| Replay Attack | Attack | Burned token reuse → REJECTED |
+| Scope Escalation | Attack | Read token used for write → BLOCKED |
+| Kill Switch | Control | Workflow halted mid-execution |
+| Human Review | Control | Paused at WRITE_OBJECT for approval |
+
+## Assumptions & Limitations
+
+- **Mock mode**: In local dev (`USE_AUTH0=false`), vault credentials are simulated. Real Auth0 Token Vault requires configuration.
+- **SQLite**: Uses SQLite for portability. Production deployments should consider PostgreSQL.
+- **In-memory execution**: Workflows run in-process with `setTimeout` delays. Not suitable for long-running production workflows.
+- **No persistent auth**: The dashboard doesn't require login in dev mode. Auth0 middleware is wired but permissive when `USE_AUTH0=false`.
+- **Deterministic tests**: Testbench uses fast mode (100ms delays). Timing-sensitive assertions may behave differently under load.
+
+## Deployment
+
+- **Frontend**: Vite build → `client/dist`
+- **Backend**: Express serves built frontend when present
+- **Good fit**: Railway, Render, Fly.io
+- **Build command**: `npm install && npm run build`
+- **Start command**: `npm run start`

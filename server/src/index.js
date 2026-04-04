@@ -11,6 +11,8 @@ import tokenRoutes from './routes/tokenRoutes.js';
 import workflowRoutes from './routes/workflowRoutes.js';
 import vaultRoutes from './routes/vaultRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import testbenchRoutes from './routes/testbenchRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,13 +29,13 @@ app.use(cors({
   origin: FRONTEND_ORIGINS,
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'operational',
     service: 'TokenFlow OS',
-    version: '1.0.0',
+    version: '2.0.0',
     timestamp: new Date().toISOString(),
     auth0: process.env.USE_AUTH0 === 'true' ? 'connected' : 'mock',
   });
@@ -42,7 +44,9 @@ app.get('/api/health', (req, res) => {
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/workflows', workflowRoutes);
+app.use('/api/workflows', uploadRoutes);
 app.use('/api/vault', vaultRoutes);
+app.use('/api/testbench', testbenchRoutes);
 
 if (existsSync(CLIENT_DIST_PATH)) {
   app.use(express.static(CLIENT_DIST_PATH));
@@ -106,6 +110,7 @@ initWebSocket(server);
 server.listen(PORT, () => {
   console.log('');
   console.log('==================================================');
+  console.log(`  TokenFlow OS v2.0`);
   console.log(`  Server running on http://localhost:${PORT}`);
   console.log(`  WebSocket on ws://localhost:${PORT}/ws`);
   console.log(`  Auth0: ${process.env.USE_AUTH0 === 'true' ? 'LIVE' : 'MOCK MODE'}`);

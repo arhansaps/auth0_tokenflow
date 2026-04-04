@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════════════════════
-// Workflow Runner — Orchestrates the AI agent execution demo
-// Demonstrates: normal execution, malicious step detection,
-// cross-service blocking, and token chain enforcement
+// Workflow Runner — Orchestrates the AI agent execution
+// Supports: normal execution, malicious step detection,
+// cross-service blocking, token chain enforcement,
+// replay attacks, kill-switch, human review, and
+// deterministic testbench mode.
 // ═══════════════════════════════════════════════════════════
 
 import { v4 as uuidv4 } from 'uuid';
@@ -19,11 +21,15 @@ const STEP_DELAY = 1500;
 
 class WorkflowRunner {
   /**
-   * Start a new agent workflow
+   * Start a new agent workflow.
+   * @param {object} taskData — scenario definition
+   * @param {object} [opts] — { deterministic: bool, stepDelay: number }
    */
-  async startWorkflow(taskData) {
+  async startWorkflow(taskData, opts = {}) {
     const db = getDb();
     const workflowId = `wf_${uuidv4().slice(0, 12)}`;
+    const deterministic = opts.deterministic || false;
+    const stepDelay = deterministic ? 50 : (opts.stepDelay || STEP_DELAY);
 
     db.prepare(`
       INSERT INTO workflows (id, name, status, applicant_data, current_step)
@@ -43,15 +49,18 @@ class WorkflowRunner {
     console.log(`[WORKFLOW] Started ${workflowId} for task ${taskData.name}`);
 
     // Begin step 1 after a short delay for visual effect
-    setTimeout(() => this.executeStep(workflowId, 0), STEP_DELAY);
+    setTimeout(() => this.executeStep(workflowId, 0, { deterministic, stepDelay }), stepDelay);
 
     return { workflowId, status: 'running', taskData };
   }
 
   /**
-   * Execute a specific workflow step
+   * Execute a specific workflow step.
    */
-  async executeStep(workflowId, stepIndex) {
+  async executeStep(workflowId, stepIndex, opts = {}) {
+    const deterministic = opts.deterministic || false;
+    const stepDelay = opts.stepDelay || STEP_DELAY;
+
     const workflow = this.getWorkflow(workflowId);
     if (!workflow) throw new Error(`Workflow ${workflowId} not found`);
     if (workflow.status === 'aborted' || workflow.status === 'completed') return;
@@ -64,8 +73,24 @@ class WorkflowRunner {
     // inject the unauthorized READ_REPO attempt before WRITE_OBJECT
     if (taskData.malicious && stepIndex === 2 && taskData.malicious_step) {
       console.log(`[WORKFLOW] ⚠ Compromised agent attempting unauthorized step...`);
-      await this._attemptMaliciousStep(workflowId, taskData, stepIndex);
+      await this._attemptMaliciousStep(workflowId, taskData, stepIndex, opts);
       return; // Execution halts — the malicious step was blocked
+    }
+
+    // ── REPLAY ATTACK ─────────────────────────────────────────
+    // If the task has replay=true and we're at step 1 (after READ_OBJECT burned),
+    // attempt to reuse the burned token
+    if (taskData.replay && stepIndex === 1) {
+      console.log(`[WORKFLOW] ⚠ Replay attack — agent attempting to reuse burned token...`);
+      await this._attemptReplay(workflowId, taskData, stepIndex, opts);
+      // After replay attempt is blocked, continue normally
+    }
+
+    // ── KILL SWITCH ───────────────────────────────────────────
+    if (taskData.kill_at_step !== undefined && stepIndex === taskData.kill_at_step) {
+      console.log(`[WORKFLOW] ⚠ Kill switch triggered at step ${stepIndex}`);
+      await this.killWorkflow(workflowId);
+      return;
     }
 
     const actionType = steps[stepIndex];
@@ -93,18 +118,20 @@ class WorkflowRunner {
     }
 
     // Token context includes service, resource, action scoping
+    // Use stepDef (scenario-specific) values first, then fallback to stepPermissions
+    const resourcePath = stepDef?.resource || stepPermissions?.resource;
     const tokenContext = {
       taskData: { id: taskData.id, name: taskData.name },
       stepIndex,
-      service: stepPermissions?.service || stepDef?.service,
-      resource: stepPermissions?.resource || stepDef?.resource,
-      action: stepPermissions?.action || stepDef?.actionVerb,
+      service: stepDef?.service || stepPermissions?.service,
+      resource: resourcePath,
+      action: stepDef?.actionVerb || stepPermissions?.action,
     };
 
     const token = tokenEngine.mintToken(
       workflowId,
       actionType,
-      stepDef?.resource || stepPermissions?.resource,
+      resourcePath,
       AGENT_ID,
       tokenContext,
       parentTokenId,
@@ -112,16 +139,31 @@ class WorkflowRunner {
     );
 
     // Short delay, then activate and execute
-    await this._delay(STEP_DELAY);
+    await this._delay(stepDelay);
 
     // Check workflow is still alive
     const currentWorkflow = this.getWorkflow(workflowId);
     if (currentWorkflow.status === 'aborted') return;
 
+    // ── HUMAN REVIEW PAUSE ────────────────────────────────────
+    if (taskData.pause_at_step !== undefined && stepIndex === taskData.pause_at_step) {
+      tokenEngine.activateToken(token.id);
+      tokenEngine.flagToken(token.id, 'STEP_UP_REQUIRED', {
+        summary: `Step ${stepIndex} (${actionType}) requires human review before execution.`,
+        attempted_action: actionType,
+        attempted_service: stepDef?.service || stepPermissions?.service,
+        attempted_resource: stepDef?.resource || stepPermissions?.resource,
+        taskData: { id: taskData.id, name: taskData.name },
+      });
+      this._updateWorkflow(workflowId, 'paused', stepIndex);
+      console.log(`[WORKFLOW] Paused ${workflowId} at step ${stepIndex} for human review`);
+      return;
+    }
+
     tokenEngine.activateToken(token.id);
     this._updateWorkflow(workflowId, 'running', stepIndex);
 
-    await this._delay(STEP_DELAY);
+    await this._delay(stepDelay);
 
     // Execute the step action
     try {
@@ -137,8 +179,8 @@ class WorkflowRunner {
       tokenEngine.consumeToken(token.id, result);
 
       // Auto-advance to next step after delay
-      await this._delay(STEP_DELAY);
-      this.executeStep(workflowId, stepIndex + 1);
+      await this._delay(stepDelay);
+      this.executeStep(workflowId, stepIndex + 1, opts);
     } catch (error) {
       console.error(`[WORKFLOW] Step ${stepIndex} failed:`, error.message);
       tokenEngine.revokeToken(token.id, `Execution failed: ${error.message}`, 'system');
@@ -147,9 +189,10 @@ class WorkflowRunner {
   }
 
   /**
-   * Attempt an unauthorized (malicious) step — this SHOULD be blocked
+   * Attempt an unauthorized (malicious) step — this SHOULD be blocked.
    */
-  async _attemptMaliciousStep(workflowId, taskData, stepIndex) {
+  async _attemptMaliciousStep(workflowId, taskData, stepIndex, opts = {}) {
+    const stepDelay = opts.stepDelay || STEP_DELAY;
     const maliciousStep = taskData.malicious_step;
     const chain = tokenEngine.getTokenChain(workflowId);
     const parentTokenId = chain.length > 0 ? chain[chain.length - 1].id : null;
@@ -176,7 +219,7 @@ class WorkflowRunner {
       stepIndex
     );
 
-    await this._delay(STEP_DELAY);
+    await this._delay(stepDelay);
 
     // Run security validation
     const validation = policyEngine.validateExecution(
@@ -209,7 +252,27 @@ class WorkflowRunner {
   }
 
   /**
-   * Resume a paused workflow after human review approval
+   * Attempt a replay attack — reuse a burned token.
+   */
+  async _attemptReplay(workflowId, taskData, stepIndex, opts = {}) {
+    const stepDelay = opts.stepDelay || STEP_DELAY;
+    const chain = tokenEngine.getTokenChain(workflowId);
+    const burnedToken = chain.find(t => t.status === 'burned');
+
+    if (burnedToken) {
+      try {
+        // Agent tries to consume the already-burned token
+        tokenEngine.consumeToken(burnedToken.id, { replay_attempt: true });
+      } catch (err) {
+        console.log(`[WORKFLOW] 🛑 REPLAY BLOCKED: ${err.message}`);
+        // Replay was blocked — continue with normal flow
+      }
+      await this._delay(stepDelay);
+    }
+  }
+
+  /**
+   * Resume a paused workflow after human review approval.
    */
   async resumeWorkflow(workflowId) {
     const db = getDb();
@@ -246,18 +309,14 @@ class WorkflowRunner {
     // Continue to the next legitimate step (skip the malicious one)
     await this._delay(STEP_DELAY);
 
-    // If the task was malicious and we were at step 2 (the malicious injection point),
-    // resume at step 2 which is WRITE_OBJECT in the legitimate chain
     const resumeStep = workflow.current_step;
-    // The flagged step was an injected malicious step at index 2,
-    // so resuming means continuing with legitimate step 2 (WRITE_OBJECT)
     this.executeStep(workflowId, resumeStep);
 
     return { workflowId, status: 'running' };
   }
 
   /**
-   * Abort a workflow after human review rejection
+   * Abort a workflow after human review rejection.
    */
   async abortWorkflow(workflowId) {
     const workflow = this.getWorkflow(workflowId);
@@ -282,7 +341,7 @@ class WorkflowRunner {
   }
 
   /**
-   * Kill switch — immediately revoke everything
+   * Kill switch — immediately revoke everything.
    */
   async killWorkflow(workflowId) {
     const revokedCount = tokenEngine.revokeAllActive(workflowId);

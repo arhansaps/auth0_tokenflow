@@ -540,3 +540,90 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--surface
 }
 
 ::selection { background: rgba(135, 129, 255, 0.3); }
+
+/* ═══════════════════════════════════════════════════════════
+   Upload Dropzone
+   ═══════════════════════════════════════════════════════════ */
+.upload-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem;
+  border-radius: 2rem;
+  border: 2px dashed rgba(196, 192, 255, 0.2);
+  background: rgba(31, 31, 31, 0.5);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.upload-dropzone:hover {
+  border-color: rgba(196, 192, 255, 0.4);
+  background: rgba(31, 31, 31, 0.8);
+  box-shadow: 0 0 30px rgba(196, 192, 255, 0.05);
+}
+
+.upload-editor {
+  width: 100%;
+  min-height: 200px;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(70, 69, 85, 0.25);
+  background: var(--surface-container-lowest);
+  color: var(--on-surface);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+.upload-editor:focus {
+  border-color: rgba(196, 192, 255, 0.4);
+  box-shadow: 0 0 12px rgba(196, 192, 255, 0.08);
+}
+.upload-editor::placeholder { color: var(--outline); }
+
+/* ═══════════════════════════════════════════════════════════
+   Incident Comparison Table
+   ═══════════════════════════════════════════════════════════ */
+.incident-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.incident-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--on-surface-variant);
+  border-bottom: 1px solid rgba(70, 69, 85, 0.3);
+  white-space: nowrap;
+}
+.incident-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(70, 69, 85, 0.1);
+  vertical-align: top;
+}
+.incident-table tr:hover td {
+  background: rgba(196, 192, 255, 0.03);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Landing Page Hero
+   ═══════════════════════════════════════════════════════════ */
+.landing-hero {
+  padding: 3rem 0 5rem;
+  position: relative;
+  overflow: hidden;
+}
+.landing-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(255, 180, 171, 0.04) 0%, transparent 70%),
+              radial-gradient(ellipse 60% 50% at 30% 60%, rgba(196, 192, 255, 0.05) 0%, transparent 70%);
+  pointer-events: none;
+}

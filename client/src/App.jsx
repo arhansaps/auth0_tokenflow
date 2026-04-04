@@ -7,6 +7,10 @@ import {
   SquareActivity, TimerReset, Wifi, Workflow, X, Zap, Eye, KeyRound,
 } from 'lucide-react';
 import { api, getWebSocketUrl } from './api.js';
+import LandingPage from './pages/LandingPage.jsx';
+import TestbenchPage from './pages/TestbenchPage.jsx';
+import UploadPage from './pages/UploadPage.jsx';
+import IncidentPage from './pages/IncidentPage.jsx';
 
 /* ─── Interactive Particle Canvas ─── */
 function ParticleCanvas() {
@@ -82,11 +86,13 @@ const STEP_META = {
 };
 
 const NAV_ITEMS = [
+  { id: 'landing', label: 'Home', msym: 'home' },
   { id: 'dashboard', label: 'Dashboard', msym: 'space_dashboard' },
   { id: 'chain', label: 'Token Chain', msym: 'token' },
-  { id: 'audit', label: 'Audit', msym: 'history' },
   { id: 'security', label: 'Security', msym: 'shield', badgeKey: 'alerts' },
-  { id: 'vault', label: 'Vault', msym: 'lock' },
+  { id: 'testbench', label: 'Testbench', msym: 'science' },
+  { id: 'upload', label: 'Upload', msym: 'upload_file' },
+  { id: 'incident', label: 'Incident', msym: 'gpp_bad' },
   { id: 'launch', label: 'Launch', msym: 'play_arrow' },
 ];
 
@@ -94,11 +100,11 @@ const NAV_ITEMS = [
    Main App
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
-  const [page, setPage] = useState('dashboard');
+  const [page, setPage] = useState('landing');
   const [overview, setOverview] = useState(null);
   const [health, setHealth] = useState(null);
   const [tasks, setTasks] = useState([]);
-  const [selectedTask, setSelectedTask] = useState('TASK-002');
+  const [selectedTask, setSelectedTask] = useState('SCENARIO-002');
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(null);
   const [chain, setChain] = useState([]);
   const [audit, setAudit] = useState([]);
@@ -107,6 +113,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [socketState, setSocketState] = useState('connecting');
   const refreshTimeoutRef = useRef(null);
+  const selectedWorkflowIdRef = useRef(selectedWorkflowId);
 
   const workflows = overview?.workflows || [];
   const currentWorkflow = workflows.find((w) => w.id === selectedWorkflowId) || workflows[0] || null;
@@ -132,6 +139,7 @@ export default function App() {
 
   useEffect(() => { loadDashboard().catch((e) => setError(e.message)); }, [loadDashboard]);
   useEffect(() => { loadChain(selectedWorkflowId).catch((e) => setError(e.message)); }, [selectedWorkflowId, loadChain]);
+  useEffect(() => { selectedWorkflowIdRef.current = selectedWorkflowId; }, [selectedWorkflowId]);
 
   useEffect(() => {
     const ws = new WebSocket(getWebSocketUrl());
@@ -142,11 +150,11 @@ export default function App() {
       try { const d = JSON.parse(e.data); if (d.type === 'SECURITY_VIOLATION') setNotice('Security violation detected — review queue updated.'); } catch {}
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
-        loadDashboard().then(() => loadChain(selectedWorkflowId)).catch((err) => setError(err.message));
+        loadDashboard().then(() => loadChain(selectedWorkflowIdRef.current)).catch((err) => setError(err.message));
       }, 300);
     });
     return () => { clearTimeout(refreshTimeoutRef.current); ws.close(); };
-  }, [selectedWorkflowId, loadDashboard, loadChain]);
+  }, [loadDashboard, loadChain]);
 
   useEffect(() => { if (!notice && !error) return; const t = setTimeout(() => { setNotice(''); setError(''); }, 5000); return () => clearTimeout(t); }, [notice, error]);
 
@@ -220,12 +228,16 @@ export default function App() {
 
       <div className="main-wrap">
         <AnimatePresence mode="wait">
+          {page === 'landing' && <LandingPage key="landing" onEnter={setPage} />}
           {page === 'dashboard' && <DashboardPage key="d" workflows={workflows} reviewQueue={reviewQueue} credentials={credentials} health={health} goToChain={goToChain} setPage={setPage} />}
           {page === 'chain' && <ChainPage key="c" workflows={workflows} chainNodes={chainNodes} currentWorkflow={currentWorkflow} selectedWorkflowId={selectedWorkflowId} setSelectedWorkflowId={setSelectedWorkflowId} audit={audit} onKill={() => handleKill(currentWorkflow?.id)} busyAction={busyAction} />}
           {page === 'audit' && <AuditPage key="a" audit={audit} />}
           {page === 'security' && <SecurityPage key="s" currentReview={currentReview} reviewQueue={reviewQueue} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
           {page === 'vault' && <VaultPage key="v" credentials={credentials} health={health} />}
           {page === 'launch' && <LaunchPage key="l" tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask} onStart={handleStart} busyAction={busyAction} />}
+          {page === 'testbench' && <TestbenchPage key="tb" />}
+          {page === 'upload' && <UploadPage key="up" setPage={setPage} />}
+          {page === 'incident' && <IncidentPage key="inc" />}
         </AnimatePresence>
       </div>
     </div>

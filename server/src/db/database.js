@@ -22,6 +22,13 @@ export function getDb() {
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
   db.exec(schema);
 
+  // Add nonce column if missing (migration for existing DBs)
+  try {
+    db.prepare('SELECT nonce FROM tokens LIMIT 1').get();
+  } catch {
+    db.exec('ALTER TABLE tokens ADD COLUMN nonce TEXT');
+  }
+
   // Seed vault credentials if empty
   const count = db.prepare('SELECT COUNT(*) as count FROM vault_credentials').get();
   if (count.count === 0) {
@@ -38,6 +45,7 @@ function seedVaultCredentials(db) {
     VALUES (?, ?, ?, ?, ?)
   `);
 
+  // Vertex AI–themed credentials matching the incident model
   const credentials = [
     ['cred-gcs', 'gcs-service-account', 'GCS Service Account', 'token_vault', 'connected'],
     ['cred-internal-api', 'internal-api-key', 'Internal API Key', 'token_vault', 'connected'],

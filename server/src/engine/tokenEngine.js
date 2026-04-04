@@ -9,15 +9,16 @@ class TokenEngine {
   mintToken(workflowId, actionType, resourceId, agentId, context = {}, parentTokenId = null, stepIndex = 0) {
     const db = getDb();
     const id = `tok_${uuidv4().slice(0, 12)}`;
+    const nonce = uuidv4(); // unique per-token nonce for replay prevention
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
 
     db.prepare(`
-      INSERT INTO tokens (id, workflow_id, action_type, resource_id, agent_id, minted_at, expires_at, status, context, parent_token_id, step_index)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-    `).run(id, workflowId, actionType, resourceId, agentId, now, expiresAt, JSON.stringify(context), parentTokenId, stepIndex);
+      INSERT INTO tokens (id, workflow_id, action_type, resource_id, agent_id, minted_at, expires_at, status, context, parent_token_id, step_index, nonce)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+    `).run(id, workflowId, actionType, resourceId, agentId, now, expiresAt, JSON.stringify(context), parentTokenId, stepIndex, nonce);
 
-    this._auditLog(id, workflowId, 'MINTED', { actionType, resourceId, parentTokenId }, 'system');
+    this._auditLog(id, workflowId, 'MINTED', { actionType, resourceId, parentTokenId, nonce }, 'system');
 
     broadcast({
       type: 'TOKEN_EVENT',
@@ -38,6 +39,13 @@ class TokenEngine {
     const token = this.getToken(tokenId);
     if (!token) throw new Error(`Token ${tokenId} not found`);
     if (token.status !== 'pending') throw new Error(`Token ${tokenId} is ${token.status}, cannot activate`);
+
+    // Check expiration before activation
+    if (this.isTokenExpired(token)) {
+      db.prepare(`UPDATE tokens SET status = 'revoked' WHERE id = ?`).run(tokenId);
+      this._auditLog(tokenId, token.workflow_id, 'EXPIRED', {}, 'system');
+      throw new Error(`Token ${tokenId} has expired before activation`);
+    }
 
     db.prepare(`UPDATE tokens SET status = 'active' WHERE id = ?`).run(tokenId);
     this._auditLog(tokenId, token.workflow_id, 'ACTIVATED', {}, 'system');
@@ -60,10 +68,19 @@ class TokenEngine {
     const db = getDb();
     const token = this.getToken(tokenId);
     if (!token) throw new Error(`Token ${tokenId} not found`);
-    if (token.status !== 'active') throw new Error(`Token ${tokenId} is ${token.status}, cannot consume`);
+
+    // Burned tokens cannot be reused (replay prevention)
+    if (token.status === 'burned') {
+      this._auditLog(tokenId, token.workflow_id, 'REPLAY_REJECTED', { reason: 'Token already burned' }, 'system');
+      throw new Error(`REPLAY_REJECTED: Token ${tokenId} has already been burned — replay attack blocked`);
+    }
+
+    if (token.status !== 'active') {
+      throw new Error(`Token ${tokenId} is ${token.status}, cannot consume`);
+    }
 
     // Check expiration
-    if (new Date(token.expires_at) < new Date()) {
+    if (this.isTokenExpired(token)) {
       db.prepare(`UPDATE tokens SET status = 'revoked' WHERE id = ?`).run(tokenId);
       this._auditLog(tokenId, token.workflow_id, 'EXPIRED', {}, 'system');
       throw new Error(`Token ${tokenId} has expired`);
@@ -164,6 +181,20 @@ class TokenEngine {
 
     console.log(`[TOKEN] Kill switch: revoked ${tokens.length} tokens for workflow ${workflowId}`);
     return tokens.length;
+  }
+
+  // ─── Explicit state checks ────────────────────────────────
+  isTokenBurned(token) {
+    return token?.status === 'burned';
+  }
+
+  isTokenExpired(token) {
+    if (!token?.expires_at) return false;
+    return new Date(token.expires_at) < new Date();
+  }
+
+  isTokenActive(token) {
+    return token?.status === 'active' && !this.isTokenExpired(token);
   }
 
   // ─── Query helpers ────────────────────────────────────────
