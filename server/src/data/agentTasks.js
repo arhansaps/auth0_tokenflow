@@ -16,6 +16,7 @@ export const SCENARIO_NORMAL = {
   category: 'safe',
   agent: 'agent-cloud-worker',
   malicious: false,
+  expected_status: 'completed',
   incident_mapping: 'Baseline — shows how a well-scoped agent completes work without over-permission.',
   steps: [
     { action: 'READ_OBJECT', service: 'gcs', resource: 'sensor-feed/batch-2026-04.json', actionVerb: 'read' },
@@ -35,6 +36,7 @@ export const SCENARIO_DOUBLE_AGENT = {
   category: 'attack',
   agent: 'agent-cloud-worker',
   malicious: true,
+  expected_status: 'paused',
   malicious_step: {
     action: 'READ_REPO',
     service: 'source-control',
@@ -62,6 +64,7 @@ export const SCENARIO_LATERAL_MOVEMENT = {
   category: 'attack',
   agent: 'agent-cloud-worker',
   malicious: true,
+  expected_status: 'paused',
   malicious_step: {
     action: 'READ_REPO',
     service: 'source-control',
@@ -88,6 +91,7 @@ export const SCENARIO_REPLAY = {
   agent: 'agent-cloud-worker',
   malicious: true,
   replay: true,
+  expected_status: 'completed',
   incident_mapping:
     'Prevents credential replay. Traditional systems allow repeated API calls with the same credential; TokenFlow burns after one use.',
   steps: [
@@ -108,6 +112,13 @@ export const SCENARIO_ESCALATION = {
   agent: 'agent-cloud-worker',
   malicious: true,
   escalation: true,
+  expected_status: 'paused',
+  escalation_step: {
+    action: 'WRITE_OBJECT',
+    service: 'gcs',
+    resource: 'restricted/admin-config.json',
+    actionVerb: 'write',
+  },
   incident_mapping:
     'Over-permissioned access: in the Vertex incident, the agent had write access it shouldn\'t have. TokenFlow scopes each token to a single action verb.',
   steps: [
@@ -129,6 +140,7 @@ export const SCENARIO_KILL_SWITCH = {
   agent: 'agent-cloud-worker',
   malicious: false,
   kill_at_step: 1,
+  expected_status: 'aborted',
   incident_mapping:
     'Demonstrates operational control. In the Vertex incident, there was no kill switch — the agent continued operating until manual intervention hours later.',
   steps: [
@@ -149,6 +161,7 @@ export const SCENARIO_HUMAN_REVIEW = {
   agent: 'agent-cloud-worker',
   malicious: false,
   pause_at_step: 2,
+  expected_status: 'paused',
   incident_mapping:
     'Demonstrates human-in-the-loop. The Vertex agent operated autonomously without checkpoints; TokenFlow inserts mandatory review gates.',
   steps: [

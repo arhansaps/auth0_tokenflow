@@ -17,6 +17,7 @@
  */
 export function runAssertions({ scenario, chain, auditLog, workflow }) {
   const assertions = [
+    assertExpectedWorkflowOutcome(workflow, scenario),
     assertOneTokenOneAction(chain),
     assertBurnedNotReused(chain, auditLog),
     assertExpiredNotConsumed(chain, auditLog),
@@ -25,6 +26,7 @@ export function runAssertions({ scenario, chain, auditLog, workflow }) {
     assertResourceScopeNotExceeded(chain),
     assertUnauthorizedBlocked(chain, scenario),
     assertCrossServiceBlocked(chain, auditLog, scenario),
+    assertScopeEscalationBlocked(auditLog, workflow, scenario),
     assertKillSwitchStops(chain, workflow, scenario),
     assertPauseResumeRevoke(workflow, scenario),
     assertSecretsNotExposed(chain, auditLog),
@@ -39,6 +41,33 @@ export function runAssertions({ scenario, chain, auditLog, workflow }) {
     passed,
     failed,
     total: assertions.length,
+  };
+}
+
+function assertExpectedWorkflowOutcome(workflow, scenario) {
+  const id = 'expected-workflow-outcome';
+  const name = 'Workflow Ends In Expected State';
+  const description = 'Each built-in scenario should settle into its documented terminal state.';
+  const expectedStatus = scenario.expected_status;
+
+  if (!expectedStatus) {
+    return {
+      id,
+      name,
+      description,
+      passed: true,
+      expected: 'Scenario does not declare an expected terminal state',
+      actual: `Workflow status: ${workflow?.status || 'unknown'}`,
+    };
+  }
+
+  return {
+    id,
+    name,
+    description,
+    passed: workflow?.status === expectedStatus,
+    expected: `Workflow status should be "${expectedStatus}"`,
+    actual: `Workflow status is "${workflow?.status || 'unknown'}"`,
   };
 }
 
@@ -270,6 +299,42 @@ function assertCrossServiceBlocked(chain, auditLog, scenario) {
   };
 }
 
+function assertScopeEscalationBlocked(auditLog, workflow, scenario) {
+  const id = 'scope-escalation-blocked';
+  const name = 'Scope Escalation Blocked';
+  const description = 'A token minted for one action must not be reusable for a different action scope.';
+
+  if (!scenario.escalation) {
+    return {
+      id,
+      name,
+      description,
+      passed: true,
+      expected: 'No scope-escalation attempt in this scenario',
+      actual: 'Scenario does not attempt action-scope escalation',
+    };
+  }
+
+  const flaggedEvents = auditLog.filter((entry) => entry.event_type === 'FLAGGED');
+  const escalationEvents = flaggedEvents.filter((entry) => {
+    const details = typeof entry.details === 'string' ? JSON.parse(entry.details) : entry.details;
+    return details?.violations?.some((violation) => violation.type === 'SCOPE_ESCALATION');
+  });
+
+  const blocked = escalationEvents.length > 0 && workflow?.status === 'paused';
+
+  return {
+    id,
+    name,
+    description,
+    passed: blocked,
+    expected: 'Scope escalation should be flagged and the workflow should pause',
+    actual: blocked
+      ? `${escalationEvents.length} scope escalation event(s) flagged`
+      : 'No flagged scope-escalation event found',
+  };
+}
+
 // ─── 9. Kill switch stops future execution ──────────────────
 function assertKillSwitchStops(chain, workflow, scenario) {
   const id = 'kill-switch-works';
@@ -301,24 +366,23 @@ function assertPauseResumeRevoke(workflow, scenario) {
   const name = 'Pause/Resume/Revoke Works';
   const description = 'Workflows that trigger human review should pause correctly.';
 
-  const shouldPause = scenario.malicious || scenario.pause_at_step !== undefined;
+  const shouldPause = scenario.expected_status === 'paused';
 
   if (!shouldPause) {
     return { id, name, description, passed: true, expected: 'No pause expected', actual: 'Non-pausing scenario — passes by default' };
   }
 
-  // Workflow should have been paused at some point (may now be resumed or aborted)
-  const wasPaused = workflow?.status === 'paused' || workflow?.status === 'aborted' || workflow?.status === 'completed';
+  const isPaused = workflow?.status === 'paused';
 
   return {
     id,
     name,
     description,
-    passed: wasPaused,
-    expected: 'Workflow was paused for review',
-    actual: wasPaused
+    passed: isPaused,
+    expected: 'Workflow should be paused for review',
+    actual: isPaused
       ? `Workflow status: ${workflow?.status}`
-      : 'Workflow never entered paused state',
+      : `Workflow status: ${workflow?.status || 'unknown'}`,
   };
 }
 

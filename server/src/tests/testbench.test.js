@@ -13,6 +13,7 @@ import { getDb, closeDb } from '../db/database.js';
 import { testbenchEngine } from '../engine/testbenchEngine.js';
 import { validateWorkflow, sanitizeWorkflow } from '../engine/workflowSchema.js';
 import { workflowRunner } from '../engine/workflowRunner.js';
+import { ALL_TASKS } from '../data/agentTasks.js';
 
 before(() => {
   // Use in-memory DB for tests by setting env
@@ -58,9 +59,32 @@ describe('Testbench Engine', () => {
     assert.equal(result.status, 'passed', `Replay scenario should pass: ${JSON.stringify(result.assertions?.filter(a => !a.passed))}`);
   });
 
+  it('should run SCENARIO-005 (Scope Escalation) and pause the workflow', async () => {
+    const result = await testbenchEngine.runScenario('SCENARIO-005');
+    assert.equal(result.status, 'passed', `Scope escalation scenario should pass: ${JSON.stringify(result.assertions?.filter(a => !a.passed))}`);
+    assert.equal(result.workflowStatus, 'paused', 'Scope escalation should pause for review');
+  });
+
   it('should run SCENARIO-006 (Kill Switch) and pass', async () => {
     const result = await testbenchEngine.runScenario('SCENARIO-006');
     assert.equal(result.status, 'passed', `Kill Switch scenario should pass: ${JSON.stringify(result.assertions?.filter(a => !a.passed))}`);
+  });
+
+  it('should run SCENARIO-007 (Human Review) and pause the workflow', async () => {
+    const result = await testbenchEngine.runScenario('SCENARIO-007');
+    assert.equal(result.status, 'passed', `Human review scenario should pass: ${JSON.stringify(result.assertions?.filter(a => !a.passed))}`);
+    assert.equal(result.workflowStatus, 'paused', 'Human review should pause for approval');
+  });
+
+  it('should keep every built-in mock workflow aligned with its documented outcome', async () => {
+    for (const scenario of ALL_TASKS) {
+      const result = await testbenchEngine.runScenario(scenario.id);
+      assert.equal(
+        result.workflowStatus,
+        scenario.expected_status,
+        `${scenario.id} (${scenario.name}) ended as ${result.workflowStatus} instead of ${scenario.expected_status}`
+      );
+    }
   });
 
   it('should persist test results', () => {

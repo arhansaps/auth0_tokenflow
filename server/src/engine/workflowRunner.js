@@ -68,11 +68,12 @@ class WorkflowRunner {
 
     const taskData = JSON.parse(workflow.applicant_data);
     const steps = policyEngine.getStepOrder();
+    const approvedSteps = new Set(taskData.approved_steps || []);
 
     // ── MALICIOUS STEP INJECTION ──────────────────────────────
     // If the task is malicious and we've just finished step 2 (CALL_INTERNAL_API),
     // inject the unauthorized READ_REPO attempt before WRITE_OBJECT
-    if (taskData.malicious && stepIndex === 2 && taskData.malicious_step) {
+    if (taskData.malicious && stepIndex === 2 && taskData.malicious_step && !approvedSteps.has(stepIndex)) {
       console.log(`[WORKFLOW] ⚠ Compromised agent attempting unauthorized step...`);
       await this._attemptMaliciousStep(workflowId, taskData, stepIndex, opts);
       return; // Execution halts — the malicious step was blocked
@@ -147,7 +148,7 @@ class WorkflowRunner {
     if (currentWorkflow.status === 'aborted') return;
 
     // ── HUMAN REVIEW PAUSE ────────────────────────────────────
-    if (taskData.pause_at_step !== undefined && stepIndex === taskData.pause_at_step) {
+    if (taskData.pause_at_step !== undefined && stepIndex === taskData.pause_at_step && !approvedSteps.has(stepIndex)) {
       tokenEngine.activateToken(token.id);
       tokenEngine.flagToken(token.id, 'STEP_UP_REQUIRED', {
         summary: `Step ${stepIndex} (${actionType}) requires human review before execution.`,
@@ -163,6 +164,21 @@ class WorkflowRunner {
 
     tokenEngine.activateToken(token.id);
     this._updateWorkflow(workflowId, 'running', stepIndex);
+
+    if (taskData.escalation && !approvedSteps.has(stepIndex)) {
+      const escalationBlocked = await this._attemptScopeEscalation(
+        workflowId,
+        taskData,
+        stepIndex,
+        token,
+        tokenContext,
+        steps,
+        opts
+      );
+      if (escalationBlocked) {
+        return;
+      }
+    }
 
     await this._delay(stepDelay);
 
@@ -273,6 +289,51 @@ class WorkflowRunner {
   }
 
   /**
+   * Attempt a scope escalation using the currently active token.
+   */
+  async _attemptScopeEscalation(workflowId, taskData, stepIndex, token, tokenContext, stepOrder, opts = {}) {
+    const stepDelay = opts.stepDelay || STEP_DELAY;
+    const escalationStep = taskData.escalation_step || {
+      action: 'WRITE_OBJECT',
+      service: tokenContext.service,
+      resource: tokenContext.resource,
+      actionVerb: 'write',
+    };
+
+    await this._delay(stepDelay);
+
+    const validation = policyEngine.validateExecution(
+      escalationStep.action,
+      stepIndex,
+      tokenContext,
+      escalationStep.service,
+      escalationStep.actionVerb,
+      stepOrder
+    );
+
+    if (!validation.allowed) {
+      console.log(`[WORKFLOW] Scope escalation detected — blocking token misuse`);
+
+      tokenEngine.flagToken(token.id, 'SCOPE_ESCALATION', {
+        violations: validation.violations.map((violation) => ({
+          type: violation.violation,
+          ...violation.details,
+        })),
+        summary: `Scope escalation blocked: token for "${tokenContext.action}" was misused to attempt "${escalationStep.actionVerb}" on "${escalationStep.resource}"`,
+        attempted_action: escalationStep.action,
+        attempted_service: escalationStep.service,
+        attempted_resource: escalationStep.resource,
+        taskData: { id: taskData.id, name: taskData.name },
+      });
+
+      this._updateWorkflow(workflowId, 'paused', stepIndex);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Resume a paused workflow after human review approval.
    */
   async resumeWorkflow(workflowId) {
@@ -282,6 +343,10 @@ class WorkflowRunner {
     if (workflow.status !== 'paused') throw new Error(`Workflow ${workflowId} is ${workflow.status}, not paused`);
 
     const taskData = JSON.parse(workflow.applicant_data);
+    const approvedSteps = new Set(taskData.approved_steps || []);
+    approvedSteps.add(workflow.current_step);
+    taskData.approved_steps = [...approvedSteps];
+    this._updateWorkflowTaskData(workflowId, taskData);
 
     // Find the flagged token and burn it with review result
     const chain = tokenEngine.getTokenChain(workflowId);
@@ -460,6 +525,12 @@ class WorkflowRunner {
       db.prepare('UPDATE workflows SET status = ?, updated_at = ? WHERE id = ?')
         .run(status, updates.updated_at, workflowId);
     }
+  }
+
+  _updateWorkflowTaskData(workflowId, taskData) {
+    const db = getDb();
+    db.prepare('UPDATE workflows SET applicant_data = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(taskData), new Date().toISOString(), workflowId);
   }
 
   _delay(ms) {

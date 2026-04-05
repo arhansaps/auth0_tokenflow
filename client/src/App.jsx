@@ -345,7 +345,21 @@ export default function App() {
             )}
             {page === 'chain' && <ChainPage key="c" workflows={workflows} chainNodes={chainNodes} currentWorkflow={currentWorkflow} selectedWorkflowId={selectedWorkflowId} setSelectedWorkflowId={setSelectedWorkflowId} audit={audit} onKill={() => handleKill(currentWorkflow?.id)} onClearWorkflows={handleClearWorkflows} busyAction={busyAction} />}
             {page === 'audit' && <AuditPage key="a" audit={audit} />}
-            {page === 'security' && <SecurityPage key="s" currentReview={currentReview} reviewQueue={reviewQueue} workflows={workflows} onResume={handleResume} onRevoke={handleRevoke} busyAction={busyAction} />}
+            {page === 'security' && (
+              <SecurityPage
+                key="s"
+                currentReview={currentReview}
+                reviewQueue={reviewQueue}
+                workflows={workflows}
+                selectedWorkflowId={selectedWorkflowId}
+                setSelectedWorkflowId={setSelectedWorkflowId}
+                audit={audit}
+                onResume={handleResume}
+                onRevoke={handleRevoke}
+                onOpenChain={goToChain}
+                busyAction={busyAction}
+              />
+            )}
             {page === 'vault' && <VaultPage key="v" credentials={credentials} health={health} />}
             {page === 'launch' && <LaunchPage key="l" tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTask} onStart={handleStart} busyAction={busyAction} />}
             {page === 'testbench' && <TestbenchPage key="tb" />}
@@ -918,8 +932,42 @@ function AuditPage({ audit }) {
 /* ═══════════════════════════════════════════════════════════
    PAGE: Security Review — Audit Log
    ═══════════════════════════════════════════════════════════ */
-function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevoke, busyAction }) {
+function SecurityPage({
+  currentReview,
+  reviewQueue,
+  workflows,
+  selectedWorkflowId,
+  setSelectedWorkflowId,
+  audit,
+  onResume,
+  onRevoke,
+  onOpenChain,
+  busyAction,
+}) {
   const hasWorkflows = workflows && workflows.length > 0;
+  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) || workflows[0] || null;
+  const selectedReview = selectedWorkflow
+    ? reviewQueue.find((item) => item.workflowId === selectedWorkflow.id) || null
+    : currentReview || null;
+  const selectedTokenSummary = selectedWorkflow?.token_summary || {};
+  const selectedTokenTotal = Object.values(selectedTokenSummary).reduce((sum, value) => sum + value, 0);
+  const selectedStatusTone = selectedWorkflow?.status === 'completed'
+    ? 'var(--success)'
+    : selectedWorkflow?.status === 'paused'
+      ? 'var(--warning)'
+      : selectedWorkflow?.status === 'aborted'
+        ? 'var(--error)'
+        : 'var(--primary)';
+  const selectedDetailRef = useRef(null);
+
+  function inspectWorkflow(workflowId) {
+    setSelectedWorkflowId(workflowId);
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        selectedDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 40);
+    });
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -943,8 +991,55 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
         </div>
       </div>
 
+      {reviewQueue.length > 0 && (
+        <div className="card p-5 mb-6">
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div>
+              <h4 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Flagged Workflows</h4>
+              <p className="text-xs mt-1" style={{ color: 'var(--on-surface-variant)' }}>
+                Switch between intercepted workflows to review their audit details and decide whether to continue or terminate them.
+              </p>
+            </div>
+            <span className="text-[10px] font-mono" style={{ color: 'var(--outline)' }}>
+              {reviewQueue.length} workflow{reviewQueue.length === 1 ? '' : 's'} awaiting review
+            </span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {reviewQueue.map((item, idx) => {
+              const isSelected = item.workflowId === selectedWorkflow?.id;
+              return (
+                <motion.button
+                  key={item.workflowId}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  onClick={() => inspectWorkflow(item.workflowId)}
+                  className="text-left p-4 rounded-2xl transition-all"
+                  style={{
+                    background: isSelected ? 'rgba(255,180,171,0.08)' : 'var(--surface-container-high)',
+                    border: isSelected ? '1px solid rgba(255,180,171,0.35)' : '1px solid rgba(70,69,85,0.1)',
+                    boxShadow: isSelected ? '0 0 24px rgba(255,180,171,0.08)' : 'none',
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold truncate" style={{ color: 'var(--on-surface)' }}>{item.workflowName}</p>
+                      <p className="text-[9px] font-mono mt-1" style={{ color: 'var(--outline)' }}>{item.workflowId}</p>
+                    </div>
+                    <StatusPill status={item.workflow?.status || 'paused'} small />
+                  </div>
+                  <p className="text-[11px] leading-relaxed" style={{ color: 'var(--on-surface-variant)' }}>
+                    {item.review?.summary || 'Security review required before this workflow can proceed.'}
+                  </p>
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Active Review Alert */}
-      {currentReview && (
+      {selectedReview && (
         <div className="space-y-4 mb-6">
           <div className="security-alert-card">
             <div className="relative z-10">
@@ -957,12 +1052,19 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
                   <div className="flex items-center gap-2 mb-1">
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-[0.15em]" style={{ background: 'rgba(255,80,80,0.15)', color: 'var(--error)', border: '1px solid rgba(255,180,171,0.3)' }}>⚠ Security Violation</span>
                   </div>
-                  <h3 className="text-xl font-bold font-headline" style={{ color: 'var(--on-surface)' }}>{currentReview.workflowName}</h3>
+                  <h3 className="text-xl font-bold font-headline" style={{ color: 'var(--on-surface)' }}>{selectedReview.workflowName}</h3>
+                  <button
+                    onClick={() => onOpenChain(selectedReview.workflowId)}
+                    className="mt-2 px-2.5 py-1 rounded-full text-[8px] font-bold uppercase tracking-[0.15em] transition-all"
+                    style={{ background: 'rgba(196,192,255,0.12)', color: 'var(--primary)', border: '1px solid rgba(196,192,255,0.22)' }}
+                  >
+                    Open Token Chain
+                  </button>
                 </div>
               </div>
               <div className="p-4 rounded-xl font-mono text-xs leading-relaxed" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,180,171,0.1)', color: 'rgba(199,196,216,0.8)' }}>
                 <span style={{ color: 'rgba(255,180,171,0.6)' }}>ALERT </span>
-                {currentReview.review?.summary || 'Unauthorized action detected. Manual intervention required.'}
+                {selectedReview.review?.summary || 'Unauthorized action detected. Manual intervention required.'}
               </div>
             </div>
           </div>
@@ -973,26 +1075,26 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
                 <M icon="dns" style={{ fontSize: 13, color: 'var(--error)' }} />
                 <p className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--error)' }}>Attempted Service</p>
               </div>
-              <p className="text-sm font-bold font-mono" style={{ color: 'var(--error)' }}>{currentReview.review?.attempted_service || 'n/a'}</p>
+              <p className="text-sm font-bold font-mono" style={{ color: 'var(--error)' }}>{selectedReview.review?.attempted_service || 'n/a'}</p>
             </div>
             <div className="card-glow-error p-5">
               <div className="flex items-center gap-2 mb-2">
                 <M icon="search" style={{ fontSize: 13, color: 'var(--error)' }} />
                 <p className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--error)' }}>Attempted Resource</p>
               </div>
-              <p className="text-sm font-bold font-mono" style={{ color: 'var(--error)' }}>{currentReview.review?.attempted_resource || 'n/a'}</p>
+              <p className="text-sm font-bold font-mono" style={{ color: 'var(--error)' }}>{selectedReview.review?.attempted_resource || 'n/a'}</p>
             </div>
-            <DetailCard label="Attempted Action" value={currentReview.review?.attempted_action || 'n/a'} msym="bolt" />
-            <DetailCard label="Task" value={currentReview.review?.taskData?.name || currentReview.task?.name || 'n/a'} msym="assignment" />
+            <DetailCard label="Attempted Action" value={selectedReview.review?.attempted_action || 'n/a'} msym="bolt" />
+            <DetailCard label="Task" value={selectedReview.review?.taskData?.name || selectedReview.task?.name || 'n/a'} msym="assignment" />
           </div>
 
-          {(currentReview.review?.violations || []).length > 0 && (
+          {(selectedReview.review?.violations || []).length > 0 && (
             <div className="card p-5">
               <h4 className="text-sm font-bold uppercase tracking-[0.1em] mb-4 flex items-center gap-2">
                 <M icon="warning" style={{ color: 'var(--warning)', fontSize: 16 }} /> Violations Detected
               </h4>
               <div className="space-y-2">
-                {(currentReview.review?.violations || []).map((v, i) => (
+                {(selectedReview.review?.violations || []).map((v, i) => (
                   <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
                     className="violation-card">
                     <p className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--error)' }}>{v.type}</p>
@@ -1004,10 +1106,10 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
           )}
 
           <div className="flex gap-3">
-            <button onClick={() => onResume(currentReview.workflowId)} disabled={busyAction === 'resume'} className="btn-success flex-1">
+            <button onClick={() => onResume(selectedReview.workflowId)} disabled={busyAction === 'resume'} className="btn-success flex-1">
               <M icon="check_circle" style={{ fontSize: 16 }} /> {busyAction === 'resume' ? 'Resuming…' : 'Override & Resume'}
             </button>
-            <button onClick={() => onRevoke(currentReview.workflowId)} disabled={busyAction === 'revoke'} className="btn-danger flex-1">
+            <button onClick={() => onRevoke(selectedReview.workflowId)} disabled={busyAction === 'revoke'} className="btn-danger flex-1">
               <M icon="cancel" style={{ fontSize: 16 }} /> {busyAction === 'revoke' ? 'Revoking…' : 'Revoke & Abort'}
             </button>
           </div>
@@ -1015,6 +1117,112 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
       )}
 
       {/* Workflow Audit Log — shows all tracked workflows */}
+      {selectedWorkflow && (
+        <div ref={selectedDetailRef} className="card p-6 mb-6">
+          <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+            <div>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <h3 className="text-lg font-bold font-headline">Selected Workflow Detail</h3>
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-[0.18em]"
+                  style={{ background: 'rgba(196,192,255,0.08)', color: selectedStatusTone, border: `1px solid color-mix(in srgb, ${selectedStatusTone} 35%, transparent)` }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: selectedStatusTone }} />
+                  {selectedWorkflow.status}
+                </span>
+              </div>
+              <p className="text-xs" style={{ color: 'var(--on-surface-variant)' }}>
+                Inspect this workflow’s audit stream here, or jump into the token chain for step-by-step execution detail.
+              </p>
+            </div>
+            <button onClick={() => onOpenChain(selectedWorkflow.id)} className="btn-ghost">
+              <M icon="token" style={{ fontSize: 16 }} /> Open Token Chain
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-5">
+            <DetailCard label="Workflow" value={selectedWorkflow.name || 'n/a'} msym="assignment" />
+            <DetailCard label="Workflow ID" value={selectedWorkflow.id || 'n/a'} msym="hub" />
+            <DetailCard label="Started" value={selectedWorkflow.created_at ? fmtDateTime(selectedWorkflow.created_at) : '—'} msym="schedule" />
+            <DetailCard label="Updated" value={selectedWorkflow.updated_at ? fmtDateTime(selectedWorkflow.updated_at) : '—'} msym="update" />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-4 mb-5">
+            <SignalMetric label="Burned" value={String(selectedTokenSummary.burned || 0).padStart(2, '0')} hint="completed steps" tone="success" msym="local_fire_department" />
+            <SignalMetric label="Flagged" value={String(selectedTokenSummary.flagged || 0).padStart(2, '0')} hint="security interventions" tone={(selectedTokenSummary.flagged || 0) ? 'danger' : 'neutral'} msym="gpp_bad" />
+            <SignalMetric label="Revoked" value={String(selectedTokenSummary.revoked || 0).padStart(2, '0')} hint="terminated tokens" tone={(selectedTokenSummary.revoked || 0) ? 'danger' : 'neutral'} msym="cancel" />
+            <SignalMetric label="Total Tokens" value={String(selectedTokenTotal).padStart(2, '0')} hint="observed in this workflow" tone="secondary" msym="token" />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-[1.2fr,0.8fr]">
+            <div className="card p-5" style={{ background: 'var(--surface-container-high)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Selected Workflow Audit</h4>
+                <span className="text-[10px] font-mono" style={{ color: 'var(--outline)' }}>{audit.length} events loaded</span>
+              </div>
+              {audit.length === 0 ? (
+                <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>
+                  Choose a workflow from the audit trail below to load its security and lifecycle events here.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
+                  {audit.map((entry, idx) => (
+                    <motion.div
+                      key={`${entry.id}-${entry.timestamp}`}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.03 }}
+                      className="flex items-start gap-3 p-3 rounded-xl"
+                      style={{ background: 'var(--surface-container)', border: '1px solid rgba(70,69,85,0.1)' }}
+                    >
+                      <EventIcon type={entry.event_type} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: evtColor(entry.event_type) }}>{entry.event_type}</p>
+                        <p className="text-sm mt-0.5" style={{ color: 'var(--on-surface)' }}>{describeAudit(entry)}</p>
+                        <p className="text-[10px] mt-1 font-mono" style={{ color: 'var(--outline)' }}>{entry.token_id}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px]" style={{ color: 'var(--on-surface-variant)' }}>{fmtTime(entry.timestamp)}</p>
+                        <p className="text-[9px] font-mono mt-0.5" style={{ color: 'var(--outline)' }}>{entry.actor}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="card p-5" style={{ background: 'var(--surface-container-high)' }}>
+              <div className="flex items-center gap-2 mb-4">
+                <M icon="rule" style={{ color: 'var(--primary)', fontSize: 18 }} />
+                <h4 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Disposition</h4>
+              </div>
+              {selectedReview ? (
+                <div className="space-y-3">
+                  <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>
+                    This workflow is paused behind a security checkpoint. Choose whether to override the interception or revoke the entire chain.
+                  </p>
+                  <button onClick={() => onResume(selectedReview.workflowId)} disabled={busyAction === 'resume'} className="btn-success w-full">
+                    <M icon="check_circle" style={{ fontSize: 16 }} /> {busyAction === 'resume' ? 'Resuming…' : 'Override & Resume'}
+                  </button>
+                  <button onClick={() => onRevoke(selectedReview.workflowId)} disabled={busyAction === 'revoke'} className="btn-danger w-full">
+                    <M icon="cancel" style={{ fontSize: 16 }} /> {busyAction === 'revoke' ? 'Revoking…' : 'Revoke & Abort'}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm" style={{ color: 'var(--on-surface-variant)' }}>
+                    The selected workflow does not currently need manual intervention. You can still inspect its chain in the execution view.
+                  </p>
+                  <button onClick={() => onOpenChain(selectedWorkflow.id)} className="btn-ghost w-full">
+                    <M icon="token" style={{ fontSize: 16 }} /> Inspect in Token Chain
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {hasWorkflows ? (
         <div className="card p-6">
           <div className="flex items-center justify-between mb-1">
@@ -1027,7 +1235,7 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
           <p className="text-xs mb-6" style={{ color: 'var(--on-surface-variant)' }}>Complete log of all workflows with status, timestamps, and security events.</p>
 
           {/* Table Header */}
-          <div className="grid gap-3" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 0.8fr' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 0.8fr 1.2fr' }}>
             <div className="px-3 py-2">
               <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Workflow</span>
             </div>
@@ -1043,6 +1251,9 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
             <div className="px-3 py-2">
               <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Tokens</span>
             </div>
+            <div className="px-3 py-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--outline)' }}>Actions</span>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-[calc(100vh-420px)] overflow-auto pr-1">
@@ -1055,6 +1266,7 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
               const isPaused = w.status === 'paused';
               const statusColor = isAborted || hasFlagged || hasRevoked ? 'var(--error)' : isPaused ? 'var(--warning)' : w.status === 'completed' ? 'var(--success)' : 'var(--primary)';
               const statusIcon = isAborted ? 'dangerous' : hasFlagged ? 'gpp_bad' : isPaused ? 'pause_circle' : w.status === 'completed' ? 'check_circle' : 'play_circle';
+              const isSelected = selectedWorkflow?.id === w.id;
 
               return (
                 <motion.div
@@ -1064,9 +1276,9 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
                   transition={{ delay: idx * 0.04 }}
                   className="grid gap-3 items-center p-3 rounded-xl"
                   style={{
-                    gridTemplateColumns: '2fr 1fr 1fr 1fr 0.8fr',
-                    background: hasFlagged || isAborted ? 'rgba(255,180,171,0.04)' : 'var(--surface-container-high)',
-                    border: hasFlagged || isAborted ? '1px solid rgba(255,180,171,0.15)' : '1px solid rgba(70,69,85,0.1)',
+                    gridTemplateColumns: '2fr 1fr 1fr 1fr 0.8fr 1.2fr',
+                    background: isSelected ? 'rgba(196,192,255,0.08)' : hasFlagged || isAborted ? 'rgba(255,180,171,0.04)' : 'var(--surface-container-high)',
+                    border: isSelected ? '1px solid rgba(196,192,255,0.28)' : hasFlagged || isAborted ? '1px solid rgba(255,180,171,0.15)' : '1px solid rgba(70,69,85,0.1)',
                   }}
                 >
                   <div className="min-w-0">
@@ -1088,6 +1300,22 @@ function SecurityPage({ currentReview, reviewQueue, workflows, onResume, onRevok
                     {tokenSummary.flagged > 0 && <span style={{ color: 'var(--error)' }}>{tokenSummary.flagged}⚠</span>}
                     {tokenSummary.revoked > 0 && <span style={{ color: 'var(--error)' }}>{tokenSummary.revoked}✗</span>}
                     {totalTokens === 0 && <span style={{ color: 'var(--outline)' }}>—</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => inspectWorkflow(w.id)}
+                      className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-[0.14em] transition-all"
+                      style={{ background: 'rgba(196,192,255,0.12)', color: 'var(--primary)', border: '1px solid rgba(196,192,255,0.22)' }}
+                    >
+                      Inspect
+                    </button>
+                    <button
+                      onClick={() => onOpenChain(w.id)}
+                      className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-[0.14em] transition-all"
+                      style={{ background: 'rgba(166,230,255,0.08)', color: 'var(--secondary)', border: '1px solid rgba(166,230,255,0.16)' }}
+                    >
+                      Chain
+                    </button>
                   </div>
                 </motion.div>
               );
@@ -1184,6 +1412,11 @@ function VaultPage({ credentials, health }) {
    ═══════════════════════════════════════════════════════════ */
 function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction }) {
   const sel = tasks.find(t => t.id === selectedTask);
+  const outcomeTone = {
+    completed: { label: 'Expected: Complete', color: 'var(--success)', bg: 'rgba(52,211,153,0.1)' },
+    paused: { label: 'Expected: Pause', color: 'var(--warning)', bg: 'rgba(251,191,36,0.12)' },
+    aborted: { label: 'Expected: Abort', color: 'var(--error)', bg: 'rgba(255,180,171,0.12)' },
+  };
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <div className="max-w-2xl mx-auto">
@@ -1215,6 +1448,17 @@ function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction 
                       background: t.malicious ? 'rgba(255,180,171,0.1)' : 'rgba(52,211,153,0.1)',
                       color: t.malicious ? 'var(--error)' : 'var(--success)',
                     }}>{t.malicious ? 'Compromised' : 'Normal'}</span>
+                    {t.expected_status && (
+                      <span
+                        className="text-[8px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded"
+                        style={{
+                          background: outcomeTone[t.expected_status]?.bg || 'var(--surface-container-highest)',
+                          color: outcomeTone[t.expected_status]?.color || 'var(--on-surface-variant)',
+                        }}
+                      >
+                        {outcomeTone[t.expected_status]?.label || `Expected: ${t.expected_status}`}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs leading-relaxed" style={{ color: 'var(--on-surface-variant)' }}>{t.description}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1241,7 +1485,9 @@ function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction 
 
         {sel && (
           <p className="text-center text-xs mt-4" style={{ color: 'var(--outline)' }}>
-            {sel.malicious ? '⚠ Simulates a compromised agent attempting unauthorized cross-service access.' : '✓ Demonstrates a normal execution flow completing cleanly.'}
+            {sel.expected_status === 'completed' && 'This scenario should complete cleanly under the TokenFlow policy engine.'}
+            {sel.expected_status === 'paused' && 'This scenario should be intercepted and paused for review under the TokenFlow policy engine.'}
+            {sel.expected_status === 'aborted' && 'This scenario should terminate early because the kill-switch control revokes the chain.'}
           </p>
         )}
       </div>
