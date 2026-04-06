@@ -19,7 +19,7 @@ const __dirname = dirname(__filename);
 const CLIENT_DIST_PATH = resolve(__dirname, '..', '..', 'client', 'dist');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5000;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173')
   .split(',')
@@ -120,14 +120,13 @@ const server = createServer(app);
 getDb();
 initWebSocket(server);
 
-const HOST = IS_PRODUCTION ? '0.0.0.0' : 'localhost';
-server.listen(PORT, HOST, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('==================================================');
   console.log(`  TokenFlow OS v2.0`);
   console.log(`  Environment: ${IS_PRODUCTION ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-  console.log(`  Server running on http://${HOST}:${PORT}`);
-  console.log(`  WebSocket on ws://${HOST}:${PORT}/ws`);
+  console.log(`  Listening on 0.0.0.0:${PORT}`);
+  console.log(`  WebSocket on ws://0.0.0.0:${PORT}/ws`);
   console.log(`  Auth0: ${process.env.USE_AUTH0 === 'true' ? 'LIVE' : 'MOCK MODE'}`);
   console.log('==================================================');
   console.log('');
