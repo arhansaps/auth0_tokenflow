@@ -137,6 +137,7 @@ class TokenEngine {
     const db = getDb();
     const token = this.getToken(tokenId);
     if (!token) throw new Error(`Token ${tokenId} not found`);
+    const workflow = db.prepare('SELECT workflow_type FROM workflows WHERE id = ?').get(token.workflow_id);
 
     db.prepare(`UPDATE tokens SET status = 'flagged' WHERE id = ?`).run(tokenId);
     this._auditLog(tokenId, token.workflow_id, 'FLAGGED', { flagType, ...details }, 'system');
@@ -158,6 +159,7 @@ class TokenEngine {
       payload: {
         tokenId,
         workflowId: token.workflow_id,
+        workflowType: workflow?.workflow_type || 'mission',
         flagType,
         details,
         timestamp: new Date().toISOString(),

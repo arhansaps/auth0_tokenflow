@@ -256,7 +256,7 @@ describe('Testbench Engine', () => {
     }
   });
 
-  it('should clear only mission audit events when requested by security', () => {
+  it('should clear all audit events when requested by security', () => {
     const db = getDb();
     const missionWorkflowId = 'wf_audit_mission';
     const testbenchWorkflowId = 'wf_audit_testbench';
@@ -291,13 +291,12 @@ describe('Testbench Engine', () => {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run('tok_audit_testbench', testbenchWorkflowId, 'BURNED', JSON.stringify({}), new Date().toISOString(), 'agent');
 
-    const missionBeforeClear = tokenEngine.getAuditLog(missionWorkflowId).length;
-    const testbenchBeforeClear = tokenEngine.getAuditLog(testbenchWorkflowId).length;
-    const result = tokenEngine.clearAuditLog({ workflowTypes: ['mission'] });
+    const totalBeforeClear = tokenEngine.getAuditLog().length;
+    const result = tokenEngine.clearAuditLog();
 
-    assert.ok(result.count >= missionBeforeClear, 'Mission audit clear should remove mission rows');
+    assert.ok(result.count >= totalBeforeClear, 'Audit clear should remove all stored rows');
     assert.equal(tokenEngine.getAuditLog(missionWorkflowId).length, 0, 'Mission audit log should be empty');
-    assert.equal(tokenEngine.getAuditLog(testbenchWorkflowId).length, testbenchBeforeClear, 'Testbench audit log should remain intact');
+    assert.equal(tokenEngine.getAuditLog(testbenchWorkflowId).length, 0, 'Testbench audit log should be empty');
   });
 });
 

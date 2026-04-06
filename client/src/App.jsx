@@ -176,7 +176,12 @@ export default function App() {
     ws.addEventListener('close', () => setSocketState('offline'));
     ws.addEventListener('error', () => setSocketState('degraded'));
     ws.addEventListener('message', (e) => {
-      try { const d = JSON.parse(e.data); if (d.type === 'SECURITY_VIOLATION') setNotice('Security violation detected — review queue updated.'); } catch { }
+      try {
+        const d = JSON.parse(e.data);
+        if (d.type === 'SECURITY_VIOLATION' && d.payload?.workflowType !== 'testbench') {
+          setNotice('Security violation detected — review queue updated.');
+        }
+      } catch { }
       clearTimeout(refreshTimeoutRef.current);
       refreshTimeoutRef.current = setTimeout(() => {
         loadDashboard().then(() => loadChain(selectedWorkflowIdRef.current)).catch((err) => setError(err.message));
@@ -988,8 +993,9 @@ function SecurityPage({
   onClearAudit,
   busyAction,
 }) {
-  const hasWorkflows = workflows && workflows.length > 0;
-  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) || workflows[0] || null;
+  const securityWorkflows = (workflows || []).filter((workflow) => (workflow.audit_event_count || 0) > 0);
+  const hasWorkflows = securityWorkflows.length > 0;
+  const selectedWorkflow = securityWorkflows.find((workflow) => workflow.id === selectedWorkflowId) || securityWorkflows[0] || null;
   const selectedReview = selectedWorkflow
     ? reviewQueue.find((item) => item.workflowId === selectedWorkflow.id) || null
     : currentReview || null;
@@ -1288,7 +1294,7 @@ function SecurityPage({
               <M icon="history" style={{ color: 'var(--primary)', fontSize: 18 }} />
               <h3 className="text-sm font-bold uppercase tracking-[0.1em] font-headline">Workflow Audit Trail</h3>
             </div>
-            <span className="text-[10px] font-mono" style={{ color: 'var(--outline)' }}>{workflows.length} workflow{workflows.length !== 1 ? 's' : ''} recorded</span>
+            <span className="text-[10px] font-mono" style={{ color: 'var(--outline)' }}>{securityWorkflows.length} workflow{securityWorkflows.length !== 1 ? 's' : ''} recorded</span>
           </div>
           <p className="text-xs mb-6" style={{ color: 'var(--on-surface-variant)' }}>Complete log of all workflows with status, timestamps, and security events.</p>
 
@@ -1315,7 +1321,7 @@ function SecurityPage({
           </div>
 
           <div className="space-y-2 max-h-[calc(100vh-420px)] overflow-auto pr-1">
-            {workflows.map((w, idx) => {
+            {securityWorkflows.map((w, idx) => {
               const tokenSummary = w.token_summary || {};
               const totalTokens = Object.values(tokenSummary).reduce((a, b) => a + b, 0);
               const hasFlagged = tokenSummary.flagged > 0;
@@ -1509,6 +1515,9 @@ function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction 
         <div className="space-y-3 mb-6">
           {tasks.map((t) => {
             const tone = scenarioTone[t.category] || scenarioTone.safe;
+            const outcomeLabel = t.category === 'attack' && t.expected_status === 'completed'
+              ? 'Expected: Complete After Block'
+              : (outcomeTone[t.expected_status]?.label || `Expected: ${t.expected_status}`);
             return (
             <button key={t.id} onClick={() => setSelectedTask(t.id)}
               className="w-full text-left p-5 rounded-[2rem] transition-all"
@@ -1536,7 +1545,7 @@ function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction 
                           color: outcomeTone[t.expected_status]?.color || 'var(--on-surface-variant)',
                         }}
                       >
-                        {outcomeTone[t.expected_status]?.label || `Expected: ${t.expected_status}`}
+                        {outcomeLabel}
                       </span>
                     )}
                   </div>
@@ -1566,7 +1575,8 @@ function LaunchPage({ tasks, selectedTask, setSelectedTask, onStart, busyAction 
 
         {sel && (
           <p className="text-center text-xs mt-4" style={{ color: 'var(--outline)' }}>
-            {sel.expected_status === 'completed' && 'This scenario should complete cleanly under the TokenFlow policy engine.'}
+            {sel.expected_status === 'completed' && sel.category === 'attack' && 'This attack attempt should be blocked while the overall workflow still completes safely under the TokenFlow policy engine.'}
+            {sel.expected_status === 'completed' && sel.category !== 'attack' && 'This scenario should complete cleanly under the TokenFlow policy engine.'}
             {sel.expected_status === 'paused' && 'This scenario should be intercepted and paused for review under the TokenFlow policy engine.'}
             {sel.expected_status === 'aborted' && 'This scenario should terminate early because the kill-switch control revokes the chain.'}
           </p>

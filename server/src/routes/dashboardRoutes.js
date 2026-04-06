@@ -8,6 +8,7 @@ const router = Router();
 router.get('/overview', (req, res) => {
   const workflows = workflowRunner.listWorkflows().map((workflow) => {
     let taskData = workflow.applicant_data;
+    const auditEvents = tokenEngine.getAuditLog(workflow.id);
 
     if (taskData) {
       try {
@@ -20,6 +21,7 @@ router.get('/overview', (req, res) => {
     return {
       ...workflow,
       applicant_data: taskData,
+      audit_event_count: auditEvents.length,
       token_summary: tokenEngine.getTokenChain(workflow.id).reduce((acc, token) => {
         acc[token.status] = (acc[token.status] || 0) + 1;
         return acc;

@@ -71,7 +71,7 @@ router.get('/audit', (req, res) => {
 
 router.post('/audit/clear', (req, res) => {
   try {
-    const result = tokenEngine.clearAuditLog({ workflowTypes: ['mission'] });
+    const result = tokenEngine.clearAuditLog();
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
